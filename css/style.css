@@ -1,0 +1,104 @@
+:root {
+  --pip: #3cff8e;
+  --pip-dim: #1f7d49;
+  --bg: #07120c;
+}
+
+* { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+
+html, body {
+  margin: 0; padding: 0; height: 100%; width: 100%;
+  font-family: "Courier New", monospace;
+  background: var(--bg);
+  color: var(--pip);
+  overflow: hidden;
+}
+
+/* ---------- Startscherm ---------- */
+.start {
+  position: fixed; inset: 0;
+  display: flex; flex-direction: column;
+  align-items: center; justify-content: center;
+  text-align: center; padding: 24px;
+  background:
+    radial-gradient(circle at 50% 30%, rgba(60,255,142,0.08), transparent 60%),
+    var(--bg);
+}
+.start::after { /* CRT-scanlines */
+  content: ""; position: fixed; inset: 0; pointer-events: none;
+  background: repeating-linear-gradient(
+    rgba(0,0,0,0) 0px, rgba(0,0,0,0) 2px, rgba(0,0,0,0.18) 3px);
+}
+.start h1 {
+  font-size: 1.8rem; letter-spacing: 3px; margin: 0 0 4px;
+  text-shadow: 0 0 12px rgba(60,255,142,0.6);
+}
+.start h2 { font-size: 1rem; font-weight: normal; opacity: 0.8; margin: 0 0 28px; }
+.start p { max-width: 520px; line-height: 1.5; opacity: 0.85; }
+.start ul { text-align: left; max-width: 480px; line-height: 1.6; }
+
+.btn {
+  margin-top: 24px;
+  background: transparent; color: var(--pip);
+  border: 2px solid var(--pip);
+  padding: 14px 28px; font-size: 1.1rem; font-family: inherit;
+  letter-spacing: 2px; cursor: pointer; border-radius: 4px;
+  text-decoration: none; display: inline-block;
+  box-shadow: 0 0 14px rgba(60,255,142,0.4) inset;
+}
+.btn:active { background: var(--pip); color: #03150b; }
+.warn { color: #ffcf3c; font-size: 0.85rem; margin-top: 18px; }
+
+/* ---------- HUD in de AR-weergave ---------- */
+#hud {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 10;
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 12px 16px; pointer-events: none;
+  font-size: 0.9rem; letter-spacing: 1px;
+  text-shadow: 0 0 8px rgba(60,255,142,0.7);
+}
+#hud .tag {
+  background: rgba(3,21,11,0.6); border: 1px solid var(--pip-dim);
+  padding: 6px 10px; border-radius: 4px;
+}
+#hud b { color: #fff; }
+
+/* Vizier in het midden — hier moet je het dier in houden om te lokken */
+#reticle {
+  position: fixed; top: 50%; left: 50%; z-index: 9;
+  width: 54px; height: 54px; margin: -27px 0 0 -27px;
+  border: 2px solid var(--pip); border-radius: 50%;
+  pointer-events: none; opacity: 0.7;
+  box-shadow: 0 0 12px rgba(60,255,142,0.5);
+}
+#reticle::after {
+  content: ""; position: absolute; top: 50%; left: 50%;
+  width: 6px; height: 6px; margin: -3px 0 0 -3px;
+  background: var(--pip); border-radius: 50%;
+}
+
+/* Pop-up meldingen */
+#toast {
+  position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(20px);
+  z-index: 11; max-width: 90%;
+  background: rgba(3,21,11,0.92); border: 1px solid var(--pip);
+  color: var(--pip); padding: 12px 18px; border-radius: 6px;
+  font-size: 0.9rem; line-height: 1.4; text-align: center;
+  opacity: 0; transition: opacity .3s, transform .3s; pointer-events: none;
+}
+#toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* Laadscherm */
+#loader {
+  position: fixed; inset: 0; z-index: 20;
+  display: flex; align-items: center; justify-content: center;
+  background: var(--bg); transition: opacity .5s;
+}
+#loader.hidden { opacity: 0; pointer-events: none; }
+#loader .spin {
+  width: 46px; height: 46px; border: 3px solid var(--pip-dim);
+  border-top-color: var(--pip); border-radius: 50%;
+  animation: spin 1s linear infinite;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+.loader-text { margin-left: 14px; }

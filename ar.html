@@ -1,0 +1,41 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no" />
+  <title>Vault 25 — AR Paddock</title>
+  <link rel="stylesheet" href="css/style.css" />
+
+  <!-- A-Frame -->
+  <script src="https://aframe.io/releases/1.5.0/aframe.min.js"></script>
+  <!-- AR.js voor A-Frame (bevat de location-based GPS-componenten) -->
+  <script src="https://cdn.jsdelivr.net/gh/AR-js-org/AR.js@3.4.5/aframe/build/aframe-ar.js"></script>
+</head>
+<body>
+
+  <!-- HUD -->
+  <div id="hud">
+    <span class="tag" id="theme-label"></span>
+    <span class="tag">Buiten: <b id="stat-outside">0</b> &nbsp;|&nbsp; Terug: <b id="stat-returned">0</b></span>
+  </div>
+  <div id="reticle"></div>
+  <div id="toast"></div>
+
+  <div id="loader">
+    <div class="spin"></div>
+    <span class="loader-text">Paddock laden…</span>
+  </div>
+
+  <!-- Logica: volgorde is belangrijk (utils + config voor de rest) -->
+  <script src="js/utils.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/farm-builder.js"></script>
+  <script src="js/animal.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/bootstrap.js"></script>
+  <script>
+    document.getElementById('theme-label').textContent =
+      (window.VAULT25_CONFIG.theme && window.VAULT25_CONFIG.theme.label) || 'VAULT 25';
+  </script>
+</body>
+</html>
