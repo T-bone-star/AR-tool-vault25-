@@ -76,6 +76,12 @@ html, body {
   width: 6px; height: 6px; margin: -3px 0 0 -3px;
   background: var(--pip); border-radius: 50%;
 }
+/* Dier gelokt: vizier "locked" */
+#reticle.lock {
+  border-color: #ffd23c; opacity: 1;
+  box-shadow: 0 0 18px rgba(255, 210, 60, 0.8);
+}
+#reticle.lock::after { background: #ffd23c; }
 
 /* Pop-up meldingen */
 #toast {

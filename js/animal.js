@@ -138,8 +138,7 @@
 
       // Subtiele loop-/ademhalingsbeweging
       this.bobPhase += dt * 6;
-      const baseY = this.data.type === 'molerat' ? 0 : 0;
-      this.el.object3D.position.y = baseY + Math.sin(this.bobPhase) * 0.03;
+      this.el.object3D.position.y = Math.sin(this.bobPhase) * 0.03;
     },
 
     // Beweeg richting this.target met snelheid v (m/s). Geeft true bij aankomst.
@@ -194,15 +193,38 @@
 
     tickWander(dt) {
       // Check of de speler 'm lokt
-      if (this.checkLure()) { this.state = 'FOLLOW'; this.lostLureFor = 0; return; }
-      // Anders rustig buiten rondscharrelen rond het centrum
+      if (this.checkLure()) { this.startFollow(); return; }
+      // Anders rustig buiten rondscharrelen
       if (!this.target || this.moveTo(B.grazeSpeed, dt)) {
-        const c = this.sys.center;
-        this.target = {
-          x: c.x + U.rand(-B.wanderRadiusOutside, B.wanderRadiusOutside),
-          z: c.z + U.rand(-B.wanderRadiusOutside, B.wanderRadiusOutside),
-        };
+        this.target = this.pickOutsideTarget();
       }
+    },
+
+    // Kies een dwaal-doel dat BUITEN de omheining ligt. Zonder deze check
+    // wandelen dieren vanzelf (dwars door de touwen) terug naar binnen en
+    // valt er niets meer te lokken.
+    pickOutsideTarget() {
+      const p = this.el.object3D.position;
+      const c = this.sys.center;
+      for (let i = 0; i < 30; i++) {
+        const ang = U.rand(0, Math.PI * 2);
+        const r = U.rand(2, 6);
+        const x = p.x + Math.cos(ang) * r;
+        const z = p.z + Math.sin(ang) * r;
+        if (U.pointInPolygon(x, z, this.sys.enclosure)) continue;      // binnen hek
+        if (U.dist2D(x, z, c.x, c.z) > B.wanderRadiusOutside) continue; // te ver weg
+        return { x, z };
+      }
+      // Vangnet: duw het dier radiaal iets verder van het centrum af.
+      const dx = p.x - c.x, dz = p.z - c.z;
+      const len = Math.sqrt(dx * dx + dz * dz) || 1;
+      return { x: p.x + (dx / len) * 2, z: p.z + (dz / len) * 2 };
+    },
+
+    startFollow() {
+      this.state = 'FOLLOW';
+      this.lostLureFor = 0;
+      this.el.emit('animal-follow-start', { type: this.data.type }, true);
     },
 
     // Staat het cameravizier op dit dier en is het dichtbij genoeg?
@@ -224,6 +246,7 @@
         if (this.lostLureFor > 2.5) { // 2,5s uit beeld -> raakt 'm kwijt
           this.state = 'WANDER_OUTSIDE';
           this.target = null;
+          this.el.emit('animal-follow-end', { type: this.data.type }, true);
           return;
         }
       } else {
@@ -245,6 +268,7 @@
         this.target = null;
         this.pauseUntil = this.age + 1;
         this.sys.notifyReturned();
+        this.el.emit('animal-follow-end', { type: this.data.type }, true);
         this.el.emit('animal-returned', { type: this.data.type }, true);
       }
     },

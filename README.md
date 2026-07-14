@@ -10,8 +10,9 @@ Werkt direct in de telefoonbrowser — **geen app-installatie nodig**.
 
 ## Hoe het werkt
 
-- Gebouwd met [A-Frame](https://aframe.io) + [AR.js](https://ar-js-org.github.io/AR.js-Docs/)
-  (location-based / GPS AR).
+- Gebouwd met [A-Frame](https://aframe.io) **1.6.0** + [AR.js](https://ar-js-org.github.io/AR.js-Docs/)
+  **3.4.7** (location-based / GPS AR). ⚠ Deze versies horen bij elkaar —
+  AR.js 3.4.7 vereist A-Frame 1.6.0. Upgrade ze dus nooit los van elkaar.
 - Je kiest één **GPS-ankerpunt** = het middelpunt van de boerderij. Alles
   (hek, akkers, dieren) wordt in **lokale meters** rond dat punt geplaatst, dus
   het bewegen en lokken van dieren blijft vloeiend.
@@ -28,6 +29,10 @@ anchor: { latitude: 52.379189, longitude: 4.899431 },  // <-- jouw plek
 Coördinaten vind je door in Google Maps op de plek te rechtsklikken.
 
 Verder kun je hier instellen:
+- **uitlijning** (`anchor.rotationDeg`): draai de hele boerderij om 'm mooi
+  langs het echte terrein te leggen; **hoogte** (`anchor.groundOffsetMeters`):
+  hoe ver de grond onder je telefoon ligt (standaard −1,6 m);
+- **AR-gevoel** (`ar`): GPS-updateafstand en sensor-smoothing tegen trillen;
 - **omheining** (`enclosure`): vorm van het hek + waar de poort/opening zit;
 - **akkers** (`fields`): positie, grootte en gewas;
 - **dieren** (`animals`): type, aantal, hoeveel er mogen uitbreken, kleur,
@@ -90,9 +95,14 @@ js/bootstrap.js     Zet de scene op (AR- of demo-modus)
 ```
 
 ## Tips voor op locatie
+- **Firefox werkt niet** voor location-based AR (kan geen absoluut kompas
+  uitlezen). Gebruik Chrome op Android of Safari op iOS, en zet op Android
+  "nauwkeurige locatie" aan voor de browser.
+- Het vizier kleurt **amber** zolang een dier je volgt — zo weten spelers
+  dat het lokken werkt.
 - GPS op een telefoon is op ~5–10 m nauwkeurig. Maak het hek niet te klein,
   en kalibreer het kompas (figuur-8 beweging) voor je begint.
 - De fysieke omheining (echte touwen + paaltjes) mag iets ruimer staan dan de
   digitale, zodat de AR-dieren altijd "binnen" lijken.
-- Test de exacte `anchor`-coördinaten ter plekke en stel ze fijn af.
-```
+- Test de exacte `anchor`-coördinaten ter plekke en stel ze fijn af — gebruik
+  `anchor.rotationDeg` om het hek langs het terrein te draaien.

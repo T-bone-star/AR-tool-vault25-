@@ -38,20 +38,33 @@
 
   // --- Echte AR met GPS ---------------------------------------------------
   function buildAR(scene, farm) {
+    const AR = CFG.ar || {};
+
     scene.setAttribute('arjs',
       'sourceType: webcam; videoTexture: true; debugUIEnabled: false');
 
-    // Camera die de GPS van de speler volgt.
+    // Camera die de GPS van de speler volgt. look-controls uitzetten en
+    // vervangen door arjs-device-orientation-controls met smoothing — dit is
+    // de door AR.js aanbevolen manier om sensor-getril te dempen.
     const camera = document.createElement('a-camera');
+    camera.setAttribute('look-controls-enabled', 'false');
+    camera.setAttribute('arjs-device-orientation-controls',
+      `smoothingFactor: ${AR.smoothingFactor ?? 0.1}`);
     camera.setAttribute('gps-new-camera',
-      'gpsMinDistance: 0.5; simulateAltitude: 0');
+      `gpsMinDistance: ${AR.gpsMinDistance ?? 1}`);
     scene.appendChild(camera);
 
-    // Plaats de boerderij-wortel op het GPS-anker; kinderen staan in
-    // lokale meters daaromheen.
-    farm.setAttribute('gps-new-entity-place',
+    // Anker-entity op de GPS-locatie; daarbinnen de boerderij met een
+    // hoogte-offset (de camera hangt op telefoonhoogte, dus de grond moet
+    // ~1,6 m lager) en optionele rotatie om uit te lijnen met het terrein.
+    const anchorEl = document.createElement('a-entity');
+    anchorEl.setAttribute('gps-new-entity-place',
       `latitude: ${CFG.anchor.latitude}; longitude: ${CFG.anchor.longitude}`);
-    scene.appendChild(farm);
+
+    farm.setAttribute('position', `0 ${CFG.anchor.groundOffsetMeters ?? -1.6} 0`);
+    farm.setAttribute('rotation', `0 ${CFG.anchor.rotationDeg ?? 0} 0`);
+    anchorEl.appendChild(farm);
+    scene.appendChild(anchorEl);
   }
 
   // --- Demo / binnen testen ----------------------------------------------

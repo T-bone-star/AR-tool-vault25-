@@ -21,6 +21,25 @@ window.VAULT25_CONFIG = {
   anchor: {
     latitude: 52.379189,    // <-- AANPASSEN
     longitude: 4.899431,    // <-- AANPASSEN
+
+    // Draai de hele boerderij (graden, om de verticale as) zodat het hek
+    // mooi uitgelijnd staat met het echte terrein. 0 = lokale +x wijst oost.
+    rotationDeg: 0,
+
+    // In GPS-modus hangt de "camera" op de hoogte van je telefoon (~ooghoogte).
+    // De boerderij moet dus ONDER dat punt staan, anders zweeft alles op
+    // ooghoogte. -1.6 = grond ligt 1,6 m onder de telefoon.
+    groundOffsetMeters: -1.6,
+  },
+
+  // --- AR fijnafstelling ----------------------------------------------------
+  ar: {
+    // Hoeveel meter je moet bewegen voor een GPS-update van de camera.
+    // Kleiner = directer volgen, maar meer "springen" door GPS-ruis.
+    gpsMinDistance: 1,
+    // Demping van sensor-jitter (0-1, kleiner = rustiger beeld). 0.1 is de
+    // door AR.js aanbevolen waarde.
+    smoothingFactor: 0.1,
   },
 
   // Toon dieren ook zonder GPS-fix (handig om binnen te testen op de bank).

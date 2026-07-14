@@ -31,7 +31,9 @@
     const warn = document.getElementById('warn');
 
     // Camera + GPS werken alleen via https (of localhost).
-    if (location.protocol !== 'https:' &&
+    if (window.VAULT25_CONFIG.demoMode) {
+      warn.textContent = 'ℹ Demo-modus staat aan (js/config.js): GPS wordt genegeerd en de paddock staat recht voor je.';
+    } else if (location.protocol !== 'https:' &&
         location.hostname !== 'localhost' &&
         location.hostname !== '127.0.0.1') {
       warn.textContent = '⚠ Open deze pagina via https, anders blokkeert je telefoon camera/GPS.';

@@ -12,11 +12,17 @@
   // ---------------------------------------------------------------------
   // System: centrale staat die alle dieren delen
   // ---------------------------------------------------------------------
+  // Scratch-objecten zodat we niet elk frame nieuwe vectoren aanmaken.
+  const _pos = new THREE.Vector3();
+  const _dir = new THREE.Vector3();
+  const _quat = new THREE.Quaternion();
+
   AFRAME.registerSystem('farm', {
     init() {
       this.enclosure = CFG.enclosure.points;
       this.center = U.centroid(this.enclosure);
       this.cameraEl = null;
+      this.farmEl = null;   // wordt gezet door farm-builder (de lokale ruimte)
       this.totalEscaped = 0;
       this.totalReturned = 0;
       this.animals = [];
@@ -24,27 +30,37 @@
 
     registerAnimal(el) { this.animals.push(el); },
 
-    // Lokale wereldpositie van de camera in het XZ-vlak (meters t.o.v. anker)
+    // Camerapositie in FARM-LOKALE coordinaten (zelfde ruimte als de dieren).
+    // Cruciaal: in GPS-modus staat de farm-wortel op Spherical Mercator
+    // wereldcoordinaten (enorme getallen); de dieren staan in lokale meters
+    // t.o.v. die wortel. Wereld- en lokale posities direct vergelijken gaat
+    // dus mis — daarom rekenen we de camera hier om naar de lokale ruimte.
     getCameraGround() {
       if (!this.cameraEl) {
         this.cameraEl = document.querySelector('[camera]');
       }
-      const p = new THREE.Vector3();
-      if (this.cameraEl) this.cameraEl.object3D.getWorldPosition(p);
-      return p;
+      _pos.set(0, 0, 0);
+      if (this.cameraEl) this.cameraEl.object3D.getWorldPosition(_pos);
+      if (this.farmEl) this.farmEl.object3D.worldToLocal(_pos);
+      return _pos;
     },
 
-    // Genormaliseerde kijkrichting van de camera in het XZ-vlak
+    // Genormaliseerde kijkrichting van de camera in het XZ-vlak,
+    // eveneens omgerekend naar de farm-lokale ruimte (i.v.m. anchor.rotationDeg).
     getCameraForward() {
-      const dir = new THREE.Vector3(0, 0, -1);
+      _dir.set(0, 0, -1);
       if (this.cameraEl) {
-        this.cameraEl.object3D.getWorldDirection(dir);
-        dir.multiplyScalar(-1); // getWorldDirection wijst naar achteren in three
+        this.cameraEl.object3D.getWorldDirection(_dir);
+        _dir.multiplyScalar(-1); // getWorldDirection wijst naar achteren in three
       }
-      dir.y = 0;
-      if (dir.lengthSq() < 1e-6) return { x: 0, z: -1 };
-      dir.normalize();
-      return { x: dir.x, z: dir.z };
+      if (this.farmEl) {
+        this.farmEl.object3D.getWorldQuaternion(_quat);
+        _dir.applyQuaternion(_quat.invert());
+      }
+      _dir.y = 0;
+      if (_dir.lengthSq() < 1e-6) return { x: 0, z: -1 };
+      _dir.normalize();
+      return { x: _dir.x, z: _dir.z };
     },
 
     notifyEscaped() {
@@ -67,6 +83,8 @@
   // ---------------------------------------------------------------------
   AFRAME.registerComponent('farm-builder', {
     init() {
+      // Meld deze entity aan als "de lokale ruimte" waarin alles leeft.
+      this.el.sceneEl.systems.farm.farmEl = this.el;
       this.buildGround();
       this.buildFence();
       this.buildFields();
@@ -100,8 +118,10 @@
         const segLen = U.dist2D(a.x, a.z, b.x, b.z);
         const nSeg = Math.max(1, Math.round(segLen / spacing));
 
-        // Paaltjes + touwsegmenten langs deze zijde
-        for (let s = 0; s <= nSeg; s++) {
+        // Paaltjes langs deze zijde. We beginnen bij s=1: het hoekpaaltje
+        // op s=0 wordt al geplaatst door de vorige zijde (s=nSeg), anders
+        // staan er twee paaltjes op elke hoek.
+        for (let s = 1; s <= nSeg; s++) {
           const t = s / nSeg;
           const px = a.x + (b.x - a.x) * t;
           const pz = a.z + (b.z - a.z) * t;
