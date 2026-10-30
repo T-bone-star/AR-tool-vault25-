@@ -83,7 +83,20 @@ jobs:
           name: vault25-paddock-apk
           path: vault25-paddock.apk
 
-      - name: Release (alleen bij een tag v*)
+      # Altijd de nieuwste APK onder Releases → "Paddock-app (nieuwste)".
+      # Op de telefoon: github.com/T-bone-star/AR-tool-vault25-/releases/latest
+      - name: Release "nieuwste" bijwerken
+        if: github.ref_type == 'branch'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release delete nieuwste --cleanup-tag --yes || true
+          gh release create nieuwste vault25-paddock.apk \
+            --target "$GITHUB_SHA" --latest \
+            --title "Paddock-app (nieuwste) — build ${{ github.run_number }}" \
+            --notes "Automatisch gebouwd uit ${GITHUB_REF_NAME} (${GITHUB_SHA::7}). Download vault25-paddock.apk op de telefoon en installeer (bron 'onbekend' toestaan)."
+
+      - name: Release (bij een versietag v*)
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:
