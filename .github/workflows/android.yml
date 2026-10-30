@@ -42,17 +42,37 @@ jobs:
 
       - uses: android-actions/setup-android@v3
 
+      - name: Android SDK 36 installeren
+        run: |
+          set -o pipefail
+          yes | sdkmanager --licenses > /dev/null || true
+          sdkmanager "platforms;android-36" "build-tools;36.0.0" 2>&1 | tail -5 | tee -a "$RUNNER_TEMP/build.log"
+
       - name: Web-app naar het Android-project kopiëren
         run: |
-          npm ci
-          npx cap sync android
+          set -o pipefail
+          { npm ci && npx cap sync android; } 2>&1 | tee -a "$RUNNER_TEMP/build.log"
 
       - name: APK bouwen
         working-directory: android
         run: |
+          set -o pipefail
           chmod +x gradlew
-          ./gradlew assembleRelease --no-daemon
+          ./gradlew assembleRelease --no-daemon --stacktrace 2>&1 | tee -a "$RUNNER_TEMP/build.log"
           cp app/build/outputs/apk/release/app-release.apk ../vault25-paddock.apk
+
+      # Als het misgaat: de foutregels als melding bovenaan de run tonen,
+      # zodat je niet door het hele log hoeft te zoeken.
+      - name: Foutmelding samenvatten
+        if: failure()
+        run: |
+          f="$RUNNER_TEMP/build.log"
+          [ -f "$f" ] || { echo "::error::Mislukt vóór de bouwstappen (checkout/Node/Java/SDK)."; exit 0; }
+          wrong=$(grep -A 12 -E "What went wrong|npm ERR|error:|ERROR" "$f" | head -40)
+          tailtxt=$(tail -40 "$f")
+          enc() { python3 -c 'import sys;print(sys.stdin.read().replace("%","%25").replace("\r","").replace("\n","%0A"))'; }
+          echo "::error title=Oorzaak::$(printf '%s' "$wrong" | enc)"
+          echo "::error title=Laatste regels::$(printf '%s' "$tailtxt" | enc)"
 
       - uses: actions/upload-artifact@v4
         with:
