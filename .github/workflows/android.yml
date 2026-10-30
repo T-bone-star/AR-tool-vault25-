@@ -43,15 +43,14 @@ jobs:
           distribution: temurin
           java-version: 21
 
-      - id: sdk
-        uses: android-actions/setup-android@v3
-        continue-on-error: true   # de SDK staat al op de runner; dit is extra
-
       - name: Android SDK 36 installeren
         run: |
           set -o pipefail
-          yes | sdkmanager --licenses > /dev/null || true
-          sdkmanager "platforms;android-36" "build-tools;36.0.0" 2>&1 | tail -5 | tee -a "$RUNNER_TEMP/build.log"
+          # De Android SDK staat al op de GitHub-runner (ANDROID_HOME)
+          SDKM="$ANDROID_HOME/cmdline-tools/latest/bin/sdkmanager"
+          echo "SDK: $ANDROID_HOME" | tee -a "$RUNNER_TEMP/build.log"
+          yes | "$SDKM" --licenses > /dev/null || true
+          "$SDKM" "platforms;android-36" "build-tools;36.0.0" 2>&1 | tail -5 | tee -a "$RUNNER_TEMP/build.log"
 
       - name: Web-app naar het Android-project kopiëren
         run: |
@@ -72,7 +71,7 @@ jobs:
         if: failure()
         run: |
           f="$RUNNER_TEMP/build.log"
-          [ -f "$f" ] || { echo "::error::Mislukt vóór de bouwstappen. java=${{ steps.java.outcome }} sdk=${{ steps.sdk.outcome }} ANDROID_HOME=$ANDROID_HOME"; exit 0; }
+          [ -f "$f" ] || { echo "::error::Mislukt vóór de bouwstappen. java=${{ steps.java.outcome }} ANDROID_HOME=$ANDROID_HOME"; exit 0; }
           wrong=$(grep -A 12 -E "What went wrong|npm ERR|error:|ERROR" "$f" | head -40)
           tailtxt=$(tail -40 "$f")
           enc() { python3 -c 'import sys;print(sys.stdin.read().replace("%","%25").replace("\r","").replace("\n","%0A"))'; }
