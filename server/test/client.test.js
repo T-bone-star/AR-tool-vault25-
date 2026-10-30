@@ -16,6 +16,7 @@ const base = JSON.parse(JSON.stringify(require('../config')));
 base.fields.forEach(f => { f.growSeconds = 2; });
 base.wildlife.firstSpawnSeconds = 0.5;
 base.wildlife.types.forEach(t => { t.hitChance = 1; t.skittishRange = 0; t.speed = 0.01; });
+base.behavior.maxShotRange = 1e6;
 const CFGFILE = path.join(os.tmpdir(), `v25c-cfg-${process.pid}.json`);
 fs.writeFileSync(CFGFILE, JSON.stringify(base));
 
@@ -175,6 +176,24 @@ function makeBrowser(playerId, name, codes) {
       check('Kees kreeg geen vlees', !kees.net.me.inv.vlees && kees.all('net-msg').some(e => /zonder jagerskennis/.test(e.detail.text)));
       check('Piet hoorde/zag het schot', piet.all('net-shot').some(e => e.detail.by === 'c-kees'));
     }
+
+    // Hek-staat: GM zet paddock op kapot -> touwen verdwijnen op de telefoon
+    const gmws = new WebSocket(`ws://127.0.0.1:${PORT}/ws`);
+    await new Promise(r => gmws.on('open', r));
+    gmws.send(JSON.stringify({ t: 'gm-auth', pw: base.gmPassword }));
+    await sleep(200);
+    const fbc = piet.farm.components['farm-builder'];
+    const total = fbc.ropes.length;
+    const visible = () => fbc.ropes.filter(r => r.object3D.visible).length;
+    check('hek heel bij start', visible() === total, `${visible()}/${total}`);
+    gmws.send(JSON.stringify({ t: 'gm', op: 'condition', condition: 'kapot' }));
+    await piet.run(500);
+    check('GM "kapot" -> hek op de telefoon vol gaten', visible() < total * 0.5 && visible() > 0, `${visible()}/${total}`);
+    check('speler krijgt melding over het hek', piet.all('net-event').some(e => e.detail.kind === 'paddock' && /kapot/.test(e.detail.text)));
+    gmws.send(JSON.stringify({ t: 'gm', op: 'condition', condition: 'goed' }));
+    await piet.run(500);
+    check('GM "goed" -> hek weer heel', visible() === total);
+    gmws.close();
 
     // Inleveren via de telefoon
     piet.net.send({ t: 'turnin' }); await piet.run(400);

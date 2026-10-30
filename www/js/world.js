@@ -114,13 +114,17 @@
 
       s.f.forEach((p, i) => { if (this.fields[i]) this.fields[i].progress = p; });
 
+      // Hek laten zien zoals de server zegt: goed / beschadigd / kapot
+      const fb = this.farmEl.components && this.farmEl.components['farm-builder'];
+      if (fb && fb.setCondition && s.st) fb.setCondition(s.st.cond);
+
       // Volgt er een dier mij? (vizier amber)
       const mine = s.a.filter(a => a.f === net.id).length;
       if (mine !== this.followCount) {
         this.followCount = mine;
         document.dispatchEvent(new CustomEvent('follow-count', { detail: mine }));
       }
-      if (s.st && (s.st.outside !== this.stats.outside || s.st.returned !== this.stats.returned)) {
+      if (s.st && (s.st.outside !== this.stats.outside || s.st.returned !== this.stats.returned || s.st.cond !== this.stats.cond)) {
         this.stats = s.st;
         document.dispatchEvent(new CustomEvent('farm-stats', { detail: s.st }));
       }
@@ -161,6 +165,13 @@
       setTimeout(() => this.el.sceneEl.emit('farm-ready'), 0);
     },
 
+    setCondition(cond) {
+      if (!cond || cond === this.cond || !this.ropes) return;
+      this.cond = cond;
+      const gone = cond === 'kapot' ? 0.66 : cond === 'beschadigd' ? 0.25 : 0;
+      for (const r of this.ropes) r.object3D.visible = r.__break >= gone;
+    },
+
     buildGround() {
       const g = document.createElement('a-entity');
       g.setAttribute('geometry', 'primitive: circle; radius: 40');
@@ -182,7 +193,14 @@
           if (isGate) { const gw = gate.widthMeters / len; if (t > 0.5 - gw / 2 && t < 0.5 + gw / 2) continue; }
           this.post(a.x + (b.x - a.x) * t, a.z + (b.z - a.z) * t, h);
         }
-        for (const y of [h * 0.9, h * 0.5]) this.rope(a, b, y, isGate ? gate.widthMeters : 0);
+        // Touw per stuk tussen twee paaltjes, zodat een beschadigd hek zichtbaar gaten krijgt
+        for (let s = 0; s < n; s++) {
+          const t0 = s / n, t1 = (s + 1) / n;
+          if (isGate) { const gw = gate.widthMeters / len; if (t1 > 0.5 - gw / 2 && t0 < 0.5 + gw / 2) continue; }
+          const p0 = { x: a.x + (b.x - a.x) * t0, z: a.z + (b.z - a.z) * t0 };
+          const p1 = { x: a.x + (b.x - a.x) * t1, z: a.z + (b.z - a.z) * t1 };
+          for (const y of [h * 0.9, h * 0.5]) this.rope(p0, p1, y, 0);
+        }
       }
     },
     post(x, z, h) {
@@ -201,6 +219,9 @@
         r.setAttribute('position', `${(x1 + x2) / 2} ${y} ${(z1 + z2) / 2}`);
         r.setAttribute('rotation', `90 ${THREE.MathUtils.radToDeg(Math.atan2(x2 - x1, z2 - z1))} 0`);
         this.el.appendChild(r);
+        // Vaste "breekvolgorde": bij beschadigd valt ~1 op 4 weg, bij kapot ~2 op 3
+        r.__break = ((this.ropes = this.ropes || []).length * 0.618034) % 1;
+        this.ropes.push(r);
       };
       if (!gap) { make(a.x, a.z, b.x, b.z); return; }
       const len = U.dist2D(a.x, a.z, b.x, b.z), gw = gap / len;

@@ -9,7 +9,9 @@ window.VAULT25_CONFIG = {
 
   // Standaard serveradres in de app (de GM-laptop op de eigen wifi).
   // Spelers kunnen het op het startscherm aanpassen; de app onthoudt het.
-  defaultServer: '192.168.1.10:8080',
+  // ComputerVanTom op het event-netwerk. Wisselt het IP? De app kan zelf zoeken.
+  defaultServer: '192.168.68.116:8090',
+  serverPort: 8090,
 
   // Testmodi — zie README. schaal = hoe groot de paddock getekend wordt.
   modes: {

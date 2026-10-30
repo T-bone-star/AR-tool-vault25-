@@ -31,6 +31,27 @@
     .codes { font-size: 0.85rem; }
     .codes b { color: #fff; }
     #login { max-width: 360px; margin: 18vh auto; text-align: center; }
+    .seg { display: flex; gap: 6px; flex-wrap: wrap; }
+    .seg button { flex: 1; font-family: inherit; padding: 10px 6px; font-size: 0.85rem; letter-spacing: 1px; background: transparent; border: 1px solid var(--pip-dim); color: var(--pip-dim); border-radius: 4px; cursor: pointer; }
+    .seg button.on.c-goed { color: var(--pip); border-color: var(--pip); background: rgba(60,255,142,0.12); }
+    .seg button.on.c-beschadigd { color: #ffd23c; border-color: #ffd23c; background: rgba(255,210,60,0.12); }
+    .seg button.on.c-kapot { color: #ff6b4a; border-color: #ff6b4a; background: rgba(255,107,74,0.15); }
+    .seg button.on.m { color: #fff; border-color: #fff; }
+    .bar { height: 10px; background: rgba(60,255,142,0.12); border-radius: 3px; overflow: hidden; flex: 1; }
+    .bar > i { display: block; height: 100%; background: var(--pip); }
+    .bar.low > i { background: #ff6b4a; }
+    .bar.mid > i { background: #ffd23c; }
+    .sect { display: flex; align-items: center; gap: 8px; font-size: 0.8rem; margin: 4px 0; }
+    .sect span:first-child { width: 48px; }
+    .sect span:last-child { width: 86px; text-align: right; opacity: 0.7; }
+    .animal { font-size: 0.8rem; padding: 2px 0; }
+    .animal.out { color: #ffd23c; }
+    .animal.late { color: #ff6b4a; }
+    .rq { font-size: 0.8rem; padding: 4px 0; border-bottom: 1px dotted rgba(60,255,142,0.15); }
+    .rq.sent { opacity: 0.45; }
+    .rq b { color: #ffd23c; font-weight: normal; }
+    select.codein { padding: 8px; }
+    #gm-msg { min-height: 1.2em; font-size: 0.8rem; color: #ffd23c; }
     #search { padding: 8px; font-family: inherit; background: #03150b; color: #fff; border: 1px solid var(--pip-dim); border-radius: 4px; width: 100%; margin-bottom: 8px; }
   </style>
 </head>
@@ -52,6 +73,36 @@
     <div class="grid">
       <div>
         <div class="card">
+          <h2>PADDOCK</h2>
+          <div class="seg" id="cond-seg">
+            <button class="c-goed" data-cond="goed">GOED</button>
+            <button class="c-beschadigd" data-cond="beschadigd">BESCHADIGD</button>
+            <button class="c-kapot" data-cond="kapot">KAPOT</button>
+          </div>
+          <p class="small" id="cond-info"></p>
+          <div class="row" style="margin-top:8px">
+            <select id="esc-type" class="codein small"></select>
+            <select id="esc-count" class="codein small" style="max-width:70px"><option>1</option><option>2</option><option>3</option></select>
+            <button class="btn small danger" id="btn-escape">UITBRAAK NU</button>
+          </div>
+          <div id="gm-msg"></div>
+          <div id="animals" style="margin-top:6px"></div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <h2>WILDSTAND</h2>
+          <div class="seg" id="mult-seg">
+            <button class="m" data-mult="0">UIT</button>
+            <button class="m" data-mult="0.5">×½</button>
+            <button class="m" data-mult="1">×1</button>
+            <button class="m" data-mult="1.5">×1½</button>
+            <button class="m" data-mult="2">×2</button>
+            <button class="m" data-mult="3">×3</button>
+          </div>
+          <p class="small" id="wild-info"></p>
+          <div id="sectors"></div>
+          <button class="btn small ghost" id="btn-wildrestore">WILD OVERAL HERSTELLEN</button>
+        </div>
+        <div class="card" style="margin-top:16px">
           <h2>INLEVERINGEN — OPEN</h2>
           <input id="ti-search" class="codein small" placeholder="zoek code of naam" autocapitalize="characters" />
           <div id="ti-open"></div>
@@ -64,6 +115,12 @@
       </div>
       <div>
         <div class="card">
+          <h2>RADIO (FREERADICAL)</h2>
+          <p class="small" id="radio-info"></p>
+          <div class="row"><input id="radio-text" class="codein small" placeholder="Eigen radiobericht (wordt voorgelezen)" /><button class="btn small" id="btn-radio">OP DE RADIO</button></div>
+          <div id="radio-list" style="margin-top:8px"></div>
+        </div>
+        <div class="card" style="margin-top:16px">
           <h2>NIEUWS (WAT IEDEREEN ZIET)</h2>
           <div class="row"><input id="say" class="codein small" placeholder="Omroepbericht aan alle spelers" /><button class="btn small" id="btn-say">ZEND</button></div>
           <div id="feed-list" style="margin-top:8px"></div>
@@ -98,6 +155,7 @@
         if (m.t === 'gm-denied') { $('login').hidden = false; $('app').hidden = true; $('login-msg').textContent = 'Verkeerd wachtwoord.'; sessionStorage.removeItem('v25-gm'); ws.onclose = null; ws.close(); }
         if (m.t === 'gm-ok') { $('login').hidden = true; $('app').hidden = false; $('conn').className = 'conn online'; sessionStorage.setItem('v25-gm', pw); }
         if (m.t === 'gm-state') { state = m; render(); }
+        if (m.t === 'gm-msg') { $('gm-msg').textContent = m.text; setTimeout(() => { $('gm-msg').textContent = ''; }, 4000); }
       };
       ws.onclose = () => { $('conn').className = 'conn offline'; setTimeout(connect, 2000); };
     }
@@ -126,6 +184,34 @@
           <td>${itemsTxt(p.inv)}</td>
         </tr>`).join('') || '<tr><td colspan="3" class="small">Nog geen spelers.</td></tr>';
 
+      const P = state.paddock, Wd = state.wild, Rd = state.radio;
+      if (P) {
+        document.querySelectorAll('#cond-seg button').forEach(b => b.classList.toggle('on', b.dataset.cond === P.condition));
+        const ev = P.escapeEveryMinutes[P.condition];
+        $('cond-info').textContent = ev ? `Vanzelf: gemiddeld één uitbraak per ${ev} min.` + (P.condition === 'kapot' ? ' Hek houdt niets tegen.' : '') : 'Geen uitbraken vanzelf — alleen als jij ze start.';
+        const sel = $('esc-type');
+        if (sel.options.length !== P.escapeTypes.length + 1) {
+          sel.innerHTML = '<option value="">willekeurig dier</option>' + P.escapeTypes.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
+        }
+        const mins = (s) => s == null ? '' : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
+        const out = P.animals.filter(a => a.state !== 'GRAZE');
+        $('animals').innerHTML = out.length ? out.map(a => {
+          const st = { ESCAPE: 'breekt uit', WANDER_OUTSIDE: 'los', FOLLOW: 'wordt teruggeleid' }[a.state] || a.state;
+          const late = a.state === 'WANDER_OUTSIDE' && a.outFor >= 300;
+          return `<div class="animal out ${late ? 'late' : ''}">${esc(a.type)} — ${st}${a.followBy ? ' door ' + esc(a.followBy) : ''}${a.outFor != null && a.state === 'WANDER_OUTSIDE' ? ' · ' + mins(a.outFor) : ''}</div>`;
+        }).join('') : '<p class="small">Al het vee staat binnen.</p>';
+      }
+      if (Wd) {
+        document.querySelectorAll('#mult-seg button').forEach(b => b.classList.toggle('on', Number(b.dataset.mult) === Wd.mult));
+        $('wild-info').textContent = `Nu ${Wd.alive} beesten in de omgeving, maximaal ${Wd.max}.`;
+        $('sectors').innerHTML = Wd.sectors.map(s => `<div class="sect"><span>${esc(s.name)}</span><div class="bar ${s.stock < 0.25 ? 'low' : s.stock < 0.6 ? 'mid' : ''}"><i style="width:${Math.round(s.stock * 100)}%"></i></div><span>${Math.round(s.stock * 100)}% · ${s.kills} geschoten</span></div>`).join('');
+      }
+      if (Rd) {
+        const idleMin = Math.floor(Rd.idleFor / 60);
+        $('radio-info').textContent = !Rd.enabled ? 'Radio staat uit (server/config.js).' : Rd.quiet ? 'Stille uren: geen automatische berichten.' : `Laatst iemand bij de paddock: ${idleMin} min geleden.`;
+        $('radio-list').innerHTML = Rd.queue.length ? Rd.queue.map(b => `<div class="rq ${b.delivered ? 'sent' : ''}"><b>${b.delivered ? 'uitgezonden ' + time(b.deliveredAt) : 'wacht op de radio'}</b> · ${esc(b.text)}</div>`).join('') : '<p class="small">Nog geen radioberichten.</p>';
+      }
+
       $('feed-list').innerHTML = state.feed.map(e => `<div class="feedrow"><i>${Math.floor(e.at / 60)}m</i>${esc(e.text)}</div>`).join('') || '<p class="small">Nog stil.</p>';
     }
 
@@ -134,7 +220,15 @@
       if (b.dataset.pay) gm('resolve', { code: b.dataset.pay, approve: true });
       if (b.dataset.back) gm('resolve', { code: b.dataset.back, approve: false });
       if (b.dataset.role) gm('role', { pid: b.dataset.pid, role: b.dataset.role, on: b.dataset.on === '1' });
+      if (b.dataset.cond) {
+        if (b.dataset.cond !== 'goed' && !confirm(`Paddock op ${b.dataset.cond.toUpperCase()} zetten? Spelers krijgen een melding${state && state.radio && state.radio.enabled ? ' en er komt een radiobericht' : ''}.`)) return;
+        gm('condition', { condition: b.dataset.cond });
+      }
+      if (b.dataset.mult != null) gm('wildmult', { value: Number(b.dataset.mult) });
     });
+    $('btn-escape').addEventListener('click', () => gm('escape', { type: $('esc-type').value, count: Number($('esc-count').value) }));
+    $('btn-wildrestore').addEventListener('click', () => { if (confirm('Alle gebieden weer vol wild?')) gm('wildrestore'); });
+    $('btn-radio').addEventListener('click', () => { const v = $('radio-text').value.trim(); if (v) { gm('radio', { text: v }); $('radio-text').value = ''; } });
     $('ti-search').addEventListener('input', render);
     $('search').addEventListener('input', render);
     $('btn-say').addEventListener('click', () => { const v = $('say').value.trim(); if (v) { gm('say', { text: v }); $('say').value = ''; } });

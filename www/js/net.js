@@ -2,7 +2,7 @@
  * Vault 25 — verbinding met de server (WebSocket)
  *
  * Instellingen komen uit localStorage (gezet op het startscherm):
- *   v25-server  "192.168.1.10:8080"
+ *   v25-server  "192.168.68.116:8090"
  *   v25-name    "Jan"
  *   v25-id      vaste speler-id voor deze telefoon
  *   v25-codes   rolcodes die bij de eerste keer verbinden worden ingewisseld
@@ -94,6 +94,40 @@
     send(msg) {
       if (this.ws && this.ws.readyState === 1) { this.ws.send(JSON.stringify(msg)); return true; }
       return false;
+    },
+
+    // Zoek de paddock-server op het lokale netwerk (voor als het IP-adres van
+    // de server-pc veranderd is). Probeert eerst het laatst bekende subnet, dan
+    // gangbare thuis-/routernetwerken. onProgress(gedaan, totaal) is optioneel.
+    async findServer(onProgress) {
+      const port = (window.VAULT25_CONFIG && window.VAULT25_CONFIG.serverPort) || 8090;
+      const nets = [];
+      const add = (pfx) => { if (pfx && !nets.includes(pfx)) nets.push(pfx); };
+      const known = (defaultServer() || '').split(':')[0].split('.');
+      if (known.length === 4) add(known.slice(0, 3).join('.'));
+      ['192.168.68', '192.168.1', '192.168.0', '192.168.178', '10.0.0', '192.168.2'].forEach(add);
+      const hosts = [];
+      for (const n of nets) for (let i = 1; i < 255; i++) hosts.push(`${n}.${i}:${port}`);
+      let done = 0, found = null;
+      const probe = async (h) => {
+        if (found) return;
+        const ctl = new AbortController();
+        const timer = setTimeout(() => ctl.abort(), 1200);
+        try {
+          const r = await fetch(`http://${h}/ping`, { signal: ctl.signal });
+          const j = await r.json();
+          if (j && j.name === 'vault25-paddock' && !found) found = h;
+        } catch (e) { /* niet hier */ }
+        clearTimeout(timer);
+        done++;
+        if (onProgress) onProgress(done, hosts.length);
+      };
+      // In groepjes van 48 tegelijk, zodat de telefoon niet vastloopt
+      for (let i = 0; i < hosts.length && !found; i += 48) {
+        await Promise.all(hosts.slice(i, i + 48).map(probe));
+      }
+      if (found) store.set('v25-server', found);
+      return found;
     },
 
     hasRole(role) { return !role || !!(this.me && this.me.roles.includes(role)); },

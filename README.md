@@ -8,27 +8,39 @@ paddock met vee, akkers en wild over het terrein heen. Ze **jagen**, **oogsten**
 - **Rollen met codes**: alleen *jagers* krijgen buit van wild, alleen *boeren*
   kunnen oogsten en melken. Vee terugbrengen kan iedereen.
 - Werkt op een **eigen wifi zonder internet**.
-- **GM-scherm** voor spelers, rollen, tassen en inleveringen.
+- **GM-scherm** voor spelers, rollen, tassen, inleveringen, de staat van het
+  hek, uitbraken en de wildstand.
+- **Radioberichten** voor FreeRadical op de bunkerradio als vee te lang los
+  loopt of niemand meer naar de paddock gaat.
 
 ```
- Telefoons (app)  ──wifi──►  GM-laptop: server/  (wereld, regels, opslag)
-                                  └─► http://<laptop>:8080/gm.html  (SL)
+ Telefoons (app) ──wifi──► ComputerVanTom: server/ (poort 8090)
+                               ├─► http://<pc>:8090/gm.html     (SL)
+                               └─► http://<pc>:8090/radio/next  (bunkerradio-Pi)
 ```
 
 ## Snel starten
 
-### 1. Server op de GM-laptop
-Node.js 18 of nieuwer nodig.
+### 1. Server op ComputerVanTom
+Node.js 18 of nieuwer nodig. Poort **8090** (8080 is al van `gm_control.html`).
+
+Eenmalig als service installeren, zodat hij bij het opstarten vanzelf draait:
 ```bash
 cd server
-npm install
-npm start
+./install-service.sh
 ```
-De server print het **serveradres** voor de app (bv. `192.168.1.10:8080`) en
-de link naar het GM-scherm. **Verander eerst** in `server/config.js`:
-`gmPassword` en de `roles`-codes.
+Of los starten om te proberen: `cd server && npm install && npm start`.
 
-Thuis testen zonder telefoon: open `http://localhost:8080` → SIMULATIE.
+```bash
+sudo systemctl restart vault25-paddock   # na een wijziging in config.js
+journalctl -u vault25-paddock -f         # meekijken: adressen, spelers
+```
+**Verander eerst** in `server/config.js`: `gmPassword` en de `roles`-codes.
+
+Thuis testen zonder telefoon: open `http://localhost:8090` → SIMULATIE.
+
+Het IP-adres van de pc wisselt via DHCP. Geef de pc liefst een vast adres in
+de router; anders gebruiken spelers **ZOEK SERVER** op het startscherm.
 
 ### 2. De app op Android-telefoons
 De APK wordt **automatisch gebouwd door GitHub** bij elke push:
@@ -64,6 +76,57 @@ npx cap open android`.
 Andere spelers zien je als figuurtje (rood = jager, geel = boer, groen = geen
 rol), horen je schoten en lezen in de nieuwsregel wat je doet.
 
+## Uitbraken en de staat van het hek
+
+Dieren breken niet meer op een vaste klok uit. Op het GM-scherm zet je de
+paddock op **goed**, **beschadigd** of **kapot** (bv. als de paddock die spelers
+bouwden is aangevallen):
+
+| Staat | Vanzelf uitbreken | Hek |
+|---|---|---|
+| goed | nooit | alleen door de poortopening |
+| beschadigd | gemiddeld 1× per 12 min | alleen door de poortopening |
+| kapot | gemiddeld 1× per 3 min | houdt niets tegen: overal in en uit |
+
+Spelers zien de schade (touwen weg) en krijgen een melding. Met **UITBRAAK NU**
+start je zelf een uitbraak (dier en aantal kiezen). Nooit meer dan 3 dieren
+tegelijk buiten; een teruggebracht dier blijft even rustig. Alles instelbaar in
+`paddock` in `server/config.js`.
+
+## Wildstand
+
+Rond de paddock liggen vier gebieden (noord, oost, zuid, west), elk met een
+eigen wildstand. Elk geschoten beest — door jagers én niet-jagers — maakt dat
+gebied armer; waar veel gejaagd wordt, komt minder en trager wild terug. Een
+leeg gebied herstelt in ~2 uur. Op het GM-scherm schaal je de totale
+hoeveelheid op of af (uit, ×½ … ×3) en kun je alles herstellen. Instelbaar in
+`wildlife` (`depletionPerKill`, `killWeight`, `regenPerHour`).
+
+## Radio (FreeRadical)
+
+De server zet berichten klaar voor de bunkerradio:
+
+| Wanneer | Bericht |
+|---|---|
+| een dier loopt 5 min los en niemand lokt het | "er loopt een brahmin los aan de noordkant…" |
+| 45 min niemand bij de paddock | "de paddock ligt er verlaten bij, de tato staat rijp…" |
+| GM zet het hek op beschadigd/kapot/goed | melding over het hek |
+| het wild in een gebied is op | "de oostkant is leeggejaagd" |
+| GM typt een eigen bericht | dat bericht |
+
+Hetzelfde probleem wordt hooguit 1× per 15 min gemeld; tussen 02:00 en 10:00
+niets. Teksten aanpassen: `server/radio-texts.js`.
+
+**Koppelen aan de bunkerradio-Pi:** kopieer `radio/paddock_radio.py` naast
+`freeradical_radio.py` en roep tussen twee nummers aan:
+```python
+from paddock_radio import fetch_paddock_bulletin
+b = fetch_paddock_bulletin()      # None als er niets is of de server onbereikbaar is
+if b:
+    tekst = b["text"]             # kant-en-klaar, of laat Ollama b["prompt"] uitspreken als FreeRadical
+```
+Testen: `PADDOCK_SERVER=192.168.68.116:8090 python3 paddock_radio.py`
+
 ## Modi
 
 | Modus | Nodig | Gebruik |
@@ -80,10 +143,13 @@ TERREIN delen alle telefoons hetzelfde GPS-anker.
 ## Bestanden
 
 ```
-server/config.js     >>> SPELREGELS, ROLCODES, GM-WACHTWOORD, ANKER <<<
+server/config.js     >>> SPELREGELS, ROLCODES, GM-WACHTWOORD, ANKER, RADIO <<<
+server/radio-texts.js radioteksten voor FreeRadical
 server/sim.js        de gedeelde wereld + alle regels
-server/server.js     netwerk, opslag (server/data/save.json), GM-toegang
-server/test/         spelregeltest, netwerktest, telefooncodetest (npm test)
+server/server.js     netwerk, opslag (server/data/save.json), GM-toegang, /radio/next
+server/install-service.sh  installeert de server als systemd-service
+server/test/         spelregels, netwerk, telefooncode, GM-scherm (npm test)
+radio/paddock_radio.py  koppeling voor de bunkerradio-Pi
 www/                 de app (ook geserveerd door de server)
 www/js/config.js     standaard serveradres in de app
 www/gm.html          GM-scherm
@@ -96,8 +162,9 @@ android/             Android-project (Capacitor)
 ```bash
 cd server && npm test
 ```
-Draait de spelregels (meerdere spelers tegelijk), een echte server met
-WebSocket-clients, en de echte telefooncode tegen die server.
+Draait de spelregels (meerdere spelers, uitbraken, wildstand, radio), een echte
+server met WebSocket-clients, de echte telefooncode en het echte GM-scherm
+tegen die server.
 
 ## Tips
 - Alles in `server/config.js` aanpassen → server herstarten. De app hoeft

@@ -10,9 +10,10 @@
  */
 module.exports = {
 
-  port: 8080,
+  // 8090: poort 8080 is op ComputerVanTom al in gebruik door gm_control.html
+  port: 8090,
 
-  // Wachtwoord voor het GM-scherm (http://<laptop>:8080/gm.html). VERANDEREN.
+  // Wachtwoord voor het GM-scherm (http://<pc>:8090/gm.html). VERANDEREN.
   gmPassword: 'verander-mij',
 
   // --- Rollen ---------------------------------------------------------------
@@ -59,6 +60,7 @@ module.exports = {
   ],
 
   // model = optioneel eigen .glb in www/assets/ (bv. 'assets/brahmin.glb'); leeg = blokmodel
+  // escapes > 0 = deze soort kan uitbreken (molerats niet: die graven zich in)
   animals: [
     { type: 'brahmin', count: 3, escapes: 1, color: '#caa472', scale: 1.0, product: 'melk', model: '' },
     { type: 'radstag', count: 2, escapes: 1, color: '#9b7d5a', scale: 0.9, product: '' },
@@ -66,11 +68,20 @@ module.exports = {
   ],
 
   wildlife: {
-    maxAlive: 4,
+    maxAlive: 4,              // bij wildstand 100% en vermenigvuldiger x1
     firstSpawnSeconds: 4,
     respawnSeconds: 15,
     spawnMinRadius: 12,
     spawnMaxRadius: 22,
+    // Wildstand per gebied rond de paddock. Elk geschoten beest maakt het
+    // gebied armer; het herstelt langzaam. Waar veel gejaagd wordt, komt
+    // minder wild. Op het GM-scherm schaal je de totale hoeveelheid op/af.
+    sectors: ['noord', 'oost', 'zuid', 'west'],
+    depletionPerKill: 0.15,   // zoveel van de stand (0–1) per geschoten beest
+    killWeight: { jager: 1, anders: 1 },  // zet 'anders' hoger om stroperij zwaarder te laten wegen
+    regenPerHour: 0.5,        // zoveel herstel per uur (0,5 = leeg → vol in 2 uur)
+    minStockToSpawn: 0.1,     // onder deze stand verschijnt er niets meer in dat gebied
+    startMultiplier: 1,       // GM-vermenigvuldiger bij de start (0 = geen wild … 3 = veel)
     types: [
       { type: 'radroach', label: 'Radroach', weight: 3, color: '#5a3a1e', speed: 1.4,
         skittishRange: 4, hitChance: 0.9, radius: 0.35, aimHeight: 0.12, scale: 1.0,
@@ -115,6 +126,35 @@ module.exports = {
 
   rewards: {
     returnAnimal: { kroonkurken: 5 },
+  },
+
+  // --- Paddock: staat van het hek ---------------------------------------
+  // Zet je op het GM-scherm op goed / beschadigd / kapot (bv. na een aanval
+  // op de paddock die spelers gebouwd hebben). De staat bepaalt hoe vaak er
+  // vanzelf een dier uitbreekt. GM kan ook altijd zelf een uitbraak starten.
+  paddock: {
+    startCondition: 'goed',
+    // Gemiddeld één uitbraak per zoveel minuten. 0 = nooit vanzelf.
+    escapeEveryMinutes: { goed: 0, beschadigd: 12, kapot: 3 },
+    maxOutside: 3,            // nooit meer dan zoveel dieren tegelijk buiten
+    // Bij "kapot" houdt het hek niets tegen: dieren lopen overal in en uit.
+    // Bij "goed" en "beschadigd" kan het alleen door de poortopening.
+  },
+
+  // --- Radio (FreeRadical / bunkerradio) ----------------------------------
+  // De server zet berichten klaar; de bunkerradio-Pi haalt ze op via
+  // http://<deze pc>:8090/radio/next (zie radio/paddock_radio.py).
+  radio: {
+    enabled: true,
+    token: '',                    // optioneel: ?token=... verplicht maken
+    escapeUnattendedMinutes: 5,   // dier zo lang los zonder dat iemand het lokt → bericht
+    idleMinutes: 45,              // zo lang niemand bij de paddock in de app → bericht
+    repeatMinutes: 15,            // hetzelfde probleem niet vaker melden dan dit
+    nearMeters: 60,               // "bij de paddock" = binnen zoveel meter van het midden
+    announceCondition: true,      // bericht als de GM de paddock op beschadigd/kapot zet
+    announceDepletedSector: true, // bericht als het wild in een gebied op is
+    // Geen berichten buiten speeltijd (het spel stopt om 02:00, start om 10:00)
+    quietHours: { from: '02:00', to: '10:00' },
   },
 
   turnIn: {

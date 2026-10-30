@@ -10,13 +10,17 @@
  * te testen is. to = speler-id | 'all' | 'gm'.
  */
 const G = require('./geo');
+const TEXTS = require('./radio-texts');
 
 const STATE_CODE = { GRAZE: 'g', ESCAPE: 'e', WANDER_OUTSIDE: 'w', FOLLOW: 'f' };
 const CODE_CHARS = 'ACDEFGHJKMNPQRTUVWXY3479';
 const r2 = (v) => Math.round(v * 100) / 100;
+const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
+const fill = (tpl, vars) => tpl.replace(/\{(\w+)\}/g, (m, k) => (vars[k] != null ? vars[k] : m));
+const CONDITIONS = ['goed', 'beschadigd', 'kapot'];
 
 class World {
-  constructor(cfg, saved = {}, emit = () => {}) {
+  constructor(cfg, saved = {}, emit = () => {}, opts = {}) {
     this.cfg = cfg;
     this.B = cfg.behavior;
     this.W = cfg.wildlife;
@@ -35,6 +39,23 @@ class World {
       });
     }
     this.turnins = saved.turnins || [];
+    this.clock = opts.clock || (() => new Date());   // echte klok (stille uren); te vervangen in tests
+    this.R = cfg.radio || { enabled: false };
+    this.P = cfg.paddock || { startCondition: 'goed', escapeEveryMinutes: {}, maxOutside: 3 };
+    this.condition = CONDITIONS.includes(saved.condition) ? saved.condition : (this.P.startCondition || 'goed');
+    // Wildstand per gebied (0–1) + GM-vermenigvuldiger
+    const sectors = (cfg.wildlife && cfg.wildlife.sectors) || ['noord', 'oost', 'zuid', 'west'];
+    this.sectors = sectors.map((name, i) => {
+      const old = (saved.sectors || []).find(o => o.name === name);
+      return { i, name, stock: old ? G.clamp(old.stock, 0, 1) : 1, kills: old ? old.kills || 0 : 0, depletedSaid: false };
+    });
+    this.wildMult = Number.isFinite(saved.wildMult) ? saved.wildMult
+      : ((cfg.wildlife && cfg.wildlife.startMultiplier) ?? 1);
+    // Radio
+    this.radioQueue = saved.radioQueue || [];
+    this.radioSeq = this.radioQueue.reduce((m, b) => Math.max(m, b.id), 0);
+    this.radioLast = {};          // soort → this.t van laatste melding
+    this.lastActive = 0;          // this.t waarop iemand voor het laatst bij de paddock was
     this.feed = [];
     this.dirty = true;        // GM-overzicht moet bijgewerkt worden
     this.saveNeeded = false;  // tassen/rollen/inleveringen gewijzigd
@@ -58,15 +79,14 @@ class World {
 
   spawnWorld() {
     this.animals = [];
-    let slot = 0;
     for (const def of this.cfg.animals) {
       for (let i = 0; i < def.count; i++) {
         const p = G.randomPointInPolygon(this.enclosure);
-        const canEscape = i < (def.escapes || 0) && !!this.gateMid;
+        const canEscape = (def.escapes || 0) > 0;
         this.animals.push({
           id: 'a' + this.nextId++, type: def.type, scale: def.scale || 1, product: def.product || '',
           x: p.x, z: p.z, yaw: G.rand(0, 6.28), state: 'GRAZE', target: null, pauseUntil: 0,
-          escapeAt: canEscape ? this.B.escapeAfterSeconds + (slot++) * this.B.escapeIntervalSeconds : Infinity,
+          canEscape, immuneUntil: 0, outSince: null,
           escapeLeg: 0, lastMilk: -1e9, followBy: null, lostFor: 0, blocked: false, hinted: false,
         });
       }
@@ -84,9 +104,19 @@ class World {
     return !!this.gateMid && G.dist(x, z, this.gateMid.x, this.gateMid.z) < this.gateHalf + 0.6;
   }
   fenceAllows(x0, z0, x1, z1) {
+    if (this.condition === 'kapot') return true;     // kapot hek houdt niets tegen
     if (this.isInside(x0, z0) === this.isInside(x1, z1)) return true;
     return this.nearGate(x0, z0) || this.nearGate(x1, z1);
   }
+  // Gebied (sector) van een punt: hoek rond het midden, noord = -z
+  sectorAt(x, z) {
+    const n = this.sectors.length;
+    const ang = Math.atan2(x - this.center.x, -(z - this.center.z));   // 0 = noord, met de klok mee
+    const a = (ang + 2 * Math.PI + Math.PI / n) % (2 * Math.PI);
+    return this.sectors[Math.floor(a / (2 * Math.PI / n)) % n];
+  }
+  directionOf(x, z) { return this.sectorAt(x, z).name; }
+
   fieldProgress(f) { return G.clamp((this.t - f.plantedAt) / (f.cfg.growSeconds || 90), 0, 1); }
   label(item) { return (this.cfg.items[item] && this.cfg.items[item].label) || item; }
   hasRole(p, role) { return !role || p.roles.has(role); }
@@ -223,6 +253,7 @@ class World {
     }
     c.state = 'DEAD';
     c.deadAt = this.t;
+    this.depleteAt(c.x, c.z, this.hasRole(p, this.cfg.rules.huntLootRole));
     if (this.hasRole(p, this.cfg.rules.huntLootRole)) {
       this.give(p, def.loot || {});
       this.msg(p, `${def.label} geveld: ${this.itemsText(def.loot || {})}.`, 'good');
@@ -325,10 +356,186 @@ class World {
     this.event('gm', 'De paddock is opnieuw ingericht.');
   }
 
+  // ------------------------------------------------- paddock + uitbraken
+  gmSetCondition(cond) {
+    if (!CONDITIONS.includes(cond) || cond === this.condition) return false;
+    const old = this.condition;
+    this.condition = cond;
+    const txt = { goed: 'De paddock is hersteld.', beschadigd: 'De paddock is beschadigd — het vee wordt onrustig.', kapot: 'De paddock is kapot! Het vee kan overal uit.' }[cond];
+    this.event('paddock', txt, { condition: cond });
+    if (this.R.announceCondition) {
+      const key = { goed: 'conditionGoed', beschadigd: 'conditionBeschadigd', kapot: 'conditionKapot' }[cond];
+      if (!(cond === 'goed' && old === 'goed')) this.radio('paddock', pick(TEXTS[key]), `De paddock is nu ${cond}.`, { force: true });
+    }
+    this.saveNeeded = true;
+    this.dirty = true;
+    return true;
+  }
+
+  // Start een uitbraak. type = 'brahmin' | 'radstag' | '' (willekeurig). Geeft het aantal terug.
+  triggerEscape(type = '', count = 1, byGm = false) {
+    const candidates = this.animals.filter(a => a.canEscape && a.state === 'GRAZE' && this.isInside(a.x, a.z) &&
+      (!type || a.type === type) && (byGm || this.t >= a.immuneUntil));
+    let n = 0;
+    while (n < count && candidates.length) {
+      const a = candidates.splice(Math.floor(Math.random() * candidates.length), 1)[0];
+      this.startEscape(a);
+      n++;
+    }
+    return n;
+  }
+
+  startEscape(a) {
+    a.state = 'ESCAPE';
+    a.escapeLeg = 0;
+    if (this.condition === 'kapot') {
+      // Door een gat in het hek: recht naar buiten, de kant op waar het toch al stond
+      let dx = a.x - this.center.x, dz = a.z - this.center.z;
+      const l = Math.hypot(dx, dz) || 1;
+      if (l < 0.5) { const r = G.rand(0, 6.28); dx = Math.cos(r); dz = Math.sin(r); } else { dx /= l; dz /= l; }
+      a.escapeLeg = 1;
+      a.target = { x: this.center.x + dx * 14, z: this.center.z + dz * 14 };
+    } else {
+      a.target = { ...this.gateInside };
+    }
+  }
+
+  outsideCount() { return this.animals.filter(a => !this.isInside(a.x, a.z) || a.state === 'ESCAPE').length; }
+
+  randomEscapes(dt) {
+    const every = (this.P.escapeEveryMinutes || {})[this.condition] || 0;
+    if (every <= 0 || this.outsideCount() >= (this.P.maxOutside || 3)) return;
+    if (Math.random() < dt / (every * 60)) this.triggerEscape('', 1, false);
+  }
+
+  // ------------------------------------------------------- wildstand
+  depleteAt(x, z, byHunter) {
+    const W = this.W, s = this.sectorAt(x, z);
+    const w = (W.killWeight || {})[byHunter ? 'jager' : 'anders'] ?? 1;
+    s.stock = G.clamp(s.stock - (W.depletionPerKill ?? 0.15) * w, 0, 1);
+    s.kills++;
+    this.saveNeeded = true;
+    if (s.stock < (W.minStockToSpawn ?? 0.1) && !s.depletedSaid) {
+      s.depletedSaid = true;
+      this.event('wild', `Het wild aan de ${s.name}kant is op.`);
+      if (this.R.announceDepletedSector) this.radio('wild-' + s.name, fill(pick(TEXTS.depleted), { richting: s.name }), `Aan de ${s.name}kant van de paddock is het wild weggejaagd.`);
+    }
+  }
+
+  gmSetWildMult(m) {
+    m = Number(m);
+    if (!Number.isFinite(m)) return false;
+    this.wildMult = G.clamp(m, 0, 5);
+    this.event('gm', `Wildstand ${this.wildMult === 0 ? 'uit' : 'x' + this.wildMult}.`);
+    this.saveNeeded = true; this.dirty = true;
+    return true;
+  }
+
+  gmRestoreWild() {
+    for (const s of this.sectors) { s.stock = 1; s.depletedSaid = false; }
+    this.event('gm', 'Het wild rond de paddock is hersteld.');
+    this.saveNeeded = true; this.dirty = true;
+  }
+
+  // ------------------------------------------------------------ radio
+  inQuietHours() {
+    const q = this.R.quietHours;
+    if (!q || !q.from || !q.to) return false;
+    const d = this.clock(), now = d.getHours() * 60 + d.getMinutes();
+    const toMin = (s) => { const [h, m] = s.split(':').map(Number); return h * 60 + (m || 0); };
+    const a = toMin(q.from), b = toMin(q.to);
+    return a <= b ? (now >= a && now < b) : (now >= a || now < b);
+  }
+
+  // Zet een bericht klaar. kind = soort probleem (niet vaker dan repeatMinutes)
+  radio(kind, text, facts, { force = false } = {}) {
+    if (!this.R.enabled) return null;
+    if (!force && this.inQuietHours()) return null;
+    const last = this.radioLast[kind];
+    if (!force && last != null && this.t - last < (this.R.repeatMinutes || 15) * 60) return null;
+    this.radioLast[kind] = this.t;
+    const b = {
+      id: ++this.radioSeq, kind, text, at: Date.now(),
+      prompt: `${TEXTS.promptIntro} ${facts}`,
+      delivered: false,
+    };
+    // Niet meer dan één openstaand bericht per soort: het nieuwste vervangt het oude
+    this.radioQueue = this.radioQueue.filter(o => o.delivered || o.kind !== kind);
+    this.radioQueue.push(b);
+    if (this.radioQueue.length > 100) this.radioQueue = this.radioQueue.slice(-100);
+    this.event('radio', `Radio: ${text}`);
+    this.saveNeeded = true;
+    this.dirty = true;
+    return b;
+  }
+
+  // Volgende bericht voor de bunkerradio (en meteen als verzonden markeren)
+  radioNext() {
+    const b = this.radioQueue.find(o => !o.delivered);
+    if (!b) return null;
+    b.delivered = true;
+    b.deliveredAt = Date.now();
+    this.saveNeeded = true;
+    this.dirty = true;
+    return b;
+  }
+
+  gmRadio(text) {
+    text = String(text || '').trim().slice(0, 400);
+    if (!text) return null;
+    return this.radio('gm-' + Date.now(), text, `Bericht van de spelleiding: ${text}`, { force: true });
+  }
+
+  radioChecks() {
+    if (!this.R.enabled) return;
+    // 1. Dieren te lang los zonder dat iemand ze lokt
+    const lim = (this.R.escapeUnattendedMinutes || 5) * 60;
+    const loose = this.animals.filter(a => a.state === 'WANDER_OUTSIDE' && a.outSince != null && this.t - a.outSince >= lim);
+    if (loose.length === 1) {
+      const a = loose[0], min = Math.round((this.t - a.outSince) / 60), dir = this.directionOf(a.x, a.z);
+      this.radio('escape', fill(pick(TEXTS.escape), { dier: a.type, minuten: min, richting: dir }),
+        `Er loopt al ${min} minuten een ${a.type} los aan de ${dir}kant van de paddock en niemand reageert. Wie hem door de poort terugbrengt krijgt kroonkurken.`);
+    } else if (loose.length > 1) {
+      const min = Math.round(Math.max(...loose.map(a => this.t - a.outSince)) / 60);
+      this.radio('escape', fill(pick(TEXTS.escapeMany), { aantal: loose.length, minuten: min }),
+        `Er lopen ${loose.length} dieren los rond de paddock, de eerste al ${min} minuten, en niemand reageert.`);
+    }
+    // 2. Lang niemand bij de paddock
+    if (this.inQuietHours()) { this.lastActive = this.t; return; }   // nachtrust telt niet mee
+    if (this.t - this.lastActive >= (this.R.idleMinutes || 45) * 60) {
+      const ripe = this.fields.filter(f => this.fieldProgress(f) >= 1).map(f => this.label(f.cfg.crop).toLowerCase());
+      const out = this.animals.filter(a => !this.isInside(a.x, a.z)).length;
+      const bits = [];
+      if (ripe.length) bits.push(`De ${ripe.join(' en de ')} ${ripe.length > 1 ? 'staan' : 'staat'} rijp te verpieteren.`);
+      if (out) bits.push(`Er ${out > 1 ? 'lopen' : 'loopt'} ${out} ${out > 1 ? 'dieren' : 'dier'} buiten het hek.`);
+      if (this.condition !== 'goed') bits.push(`Het hek is ${this.condition}.`);
+      const min = Math.round((this.t - this.lastActive) / 60);
+      this.radio('idle', fill(pick(TEXTS.idle), { minuten: min, details: bits.join(' ') }).replace(/\s+/g, ' ').trim(),
+        `Al ${min} minuten is niemand bij de paddock geweest. ${bits.join(' ')}`.trim());
+    }
+  }
+
+  markActive() {
+    const near = (this.R.nearMeters || 60);
+    for (const p of this.onlinePosed()) {
+      if (G.dist(p.pose.x, p.pose.z, this.center.x, this.center.z) <= near) { this.lastActive = this.t; return; }
+    }
+  }
+
   // ------------------------------------------------------------- tick
   tick(dt) {
     this.t += dt;
+    this.randomEscapes(dt);
     for (const a of this.animals) this.tickAnimal(a, dt);
+    this.markActive();
+    // Wild herstelt langzaam
+    const regen = ((this.W && this.W.regenPerHour) ?? 0.5) / 3600 * dt;
+    for (const sct of this.sectors) {
+      sct.stock = Math.min(1, sct.stock + regen);
+      if (sct.stock > 0.4) sct.depletedSaid = false;
+    }
+    this.radioAcc = (this.radioAcc || 0) + dt;
+    if (this.radioAcc >= 5) { this.radioAcc = 0; this.radioChecks(); }
     this.tickWildlife(dt);
     for (const f of this.fields) {
       const ripe = this.fieldProgress(f) >= 1;
@@ -353,9 +560,6 @@ class World {
     const B = this.B;
     switch (a.state) {
       case 'GRAZE': {
-        if (this.t >= a.escapeAt) {
-          a.state = 'ESCAPE'; a.escapeLeg = 0; a.target = { ...this.gateInside }; break;
-        }
         if (this.t < a.pauseUntil) break;
         if (!a.target || this.step(a, B.grazeSpeed, dt)) {
           a.target = G.randomPointInPolygon(this.enclosure);
@@ -367,15 +571,21 @@ class World {
         const arrived = this.step(a, B.escapeSpeed, dt);
         if (a.escapeLeg === 0 && (arrived || a.blocked)) { a.escapeLeg = 1; a.target = { ...this.gateOutside }; }
         if (!this.isInside(a.x, a.z)) {
-          a.state = 'WANDER_OUTSIDE'; a.target = null;
+          a.state = 'WANDER_OUTSIDE'; a.target = null; a.outSince = this.t;
           this.event('escape', `Een ${a.type} is uitgebroken!`, { animal: a.id });
         }
         break;
       }
       case 'WANDER_OUTSIDE': {
+        if (this.isInside(a.x, a.z)) {   // vanzelf teruggelopen (kan bij een kapot hek)
+          a.state = 'GRAZE'; a.target = null; a.outSince = null;
+          a.immuneUntil = this.t + (B.reEscapeSeconds || 90) * 0.5;
+          break;
+        }
         const p = this.luredBy(a, B.lureAngleDeg);
         if (p) {
           a.state = 'FOLLOW'; a.followBy = p.id; a.lostFor = 0; a.hinted = false;
+          a.outSince = this.t;   // er wordt gereageerd: de teller begint opnieuw
           this.msg(p, `De ${a.type} volgt je. Leid 'm door de opening terug.`, 'good');
           break;
         }
@@ -390,7 +600,7 @@ class World {
         a.lostFor = ok ? 0 : a.lostFor + dt;
         if (a.lostFor > (B.lureLoseSeconds || 3)) {
           if (p) this.msg(p, `Je bent de ${a.type} kwijt.`);
-          a.state = 'WANDER_OUTSIDE'; a.followBy = null; a.target = null;
+          a.state = 'WANDER_OUTSIDE'; a.followBy = null; a.target = null; a.outSince = this.t;
           break;
         }
         if (p && p.pose) {
@@ -408,7 +618,9 @@ class World {
         }
         if (this.isInside(a.x, a.z)) {
           a.state = 'GRAZE'; a.target = null; a.pauseUntil = this.t + 1;
-          a.escapeAt = this.t + (B.reEscapeSeconds || 90) * G.rand(0.8, 1.5);
+          a.immuneUntil = this.t + (B.reEscapeSeconds || 90) * G.rand(0.8, 1.5);
+          a.outSince = null;
+          this.radioLast.escape = null;   // opgelost: een nieuwe uitbraak mag weer gemeld worden
           this.returnedTotal++;
           const by = a.followBy; a.followBy = null;
           if (p && this.hasRole(p, this.cfg.rules.returnRole)) {
@@ -435,14 +647,38 @@ class World {
   }
 
   // ------------------------------------------------------------- wild
-  wildSpot() {
-    const c = this.center, W = this.W;
+  // Plek in de wildring. Met sector: alleen binnen dat gebied.
+  wildSpot(sector = null) {
+    const c = this.center, W = this.W, n = this.sectors.length;
     for (let i = 0; i < 40; i++) {
-      const a = G.rand(0, Math.PI * 2), r = G.rand(W.spawnMinRadius, W.spawnMaxRadius);
+      let a;
+      if (sector) {
+        // noord = -z; sector i beslaat de hoek rond i * (360/n) graden, met de klok mee
+        const mid = sector.i * 2 * Math.PI / n, half = Math.PI / n;
+        const compass = mid + G.rand(-half, half);
+        a = Math.atan2(-Math.cos(compass), Math.sin(compass));   // kompas → wiskundige hoek in x/z
+      } else a = G.rand(0, Math.PI * 2);
+      const r = G.rand(W.spawnMinRadius, W.spawnMaxRadius);
       const x = c.x + Math.cos(a) * r, z = c.z + Math.sin(a) * r;
       if (!this.isInside(x, z)) return { x, z };
     }
     return { x: c.x + W.spawnMaxRadius, z: c.z };
+  }
+
+  // Hoeveel wild er nu maximaal mag zijn, en hoe snel het terugkomt
+  wildCapacity() {
+    const avg = this.sectors.reduce((s, x) => s + x.stock, 0) / (this.sectors.length || 1);
+    return { max: Math.round(this.W.maxAlive * this.wildMult * avg), avg };
+  }
+
+  pickSpawnSector() {
+    const min = this.W.minStockToSpawn ?? 0.1;
+    const open = this.sectors.filter(s => s.stock >= min);
+    if (!open.length) return null;
+    const tot = open.reduce((a, s) => a + s.stock, 0);
+    let r = Math.random() * tot;
+    for (const s of open) { r -= s.stock; if (r <= 0) return s; }
+    return open[open.length - 1];
   }
 
   flee(c, pose) {
@@ -461,14 +697,18 @@ class World {
     if (!W || !W.types || !W.types.length) return;
     this.critters = this.critters.filter(c => !(c.state === 'DEAD' && this.t - c.deadAt > 4));
     const alive = this.critters.filter(c => c.state !== 'DEAD');
-    if (alive.length < W.maxAlive && this.t >= this.nextSpawn) {
+    const cap = this.wildCapacity();
+    const sector = (alive.length < cap.max && this.t >= this.nextSpawn) ? this.pickSpawnSector() : null;
+    if (sector) {
       const total = W.types.reduce((s, t) => s + (t.weight || 1), 0);
       let r = Math.random() * total, def = W.types[0];
       for (const t of W.types) { r -= (t.weight || 1); if (r <= 0) { def = t; break; } }
-      const s = this.wildSpot();
+      const s = this.wildSpot(sector);
       this.critters.push({ id: 'c' + this.nextId++, type: def.type, def, x: s.x, z: s.z, yaw: 0,
         state: 'WANDER', target: null, pauseUntil: 0, fleeUntil: 0 });
-      this.nextSpawn = this.t + W.respawnSeconds * G.rand(0.6, 1.4);
+      // Minder wild in de omgeving = trager terug; meer vermenigvuldiger = sneller
+      const speed = Math.max(0.15, this.wildMult * cap.avg);
+      this.nextSpawn = this.t + W.respawnSeconds * G.rand(0.6, 1.4) / speed;
     }
     const posed = this.onlinePosed();
     for (const c of alive) {
@@ -516,7 +756,7 @@ class World {
       f: this.fields.map(f => Math.floor(this.fieldProgress(f) * 100) / 100),
       p: this.onlinePosed().map(p => ({ id: p.id, name: p.name, x: r2(p.pose.x), z: r2(p.pose.z),
         yaw: r2(Math.atan2(p.pose.dx, p.pose.dz)), r: [...p.roles] })),
-      st: { outside: this.animals.filter(a => !this.isInside(a.x, a.z)).length, returned: this.returnedTotal },
+      st: { outside: this.animals.filter(a => !this.isInside(a.x, a.z)).length, returned: this.returnedTotal, cond: this.condition },
     };
   }
 
@@ -529,6 +769,26 @@ class World {
       feed: this.feed.slice(-40).reverse(),
       roles: Object.fromEntries(Object.entries(this.cfg.roles).map(([k, r]) => [k, { label: r.label, code: r.code }])),
       items: this.cfg.items,
+      paddock: {
+        condition: this.condition,
+        escapeEveryMinutes: this.P.escapeEveryMinutes,
+        animals: this.animals.map(a => ({ id: a.id, type: a.type, state: a.state, canEscape: a.canEscape,
+          outFor: a.outSince != null ? Math.round(this.t - a.outSince) : null,
+          followBy: a.followBy ? (this.players.get(a.followBy) || {}).name : null })),
+        escapeTypes: [...new Set(this.animals.filter(a => a.canEscape).map(a => a.type))],
+      },
+      wild: {
+        mult: this.wildMult,
+        alive: this.critters.filter(c => c.state !== 'DEAD').length,
+        max: this.wildCapacity().max,
+        sectors: this.sectors.map(s => ({ name: s.name, stock: r2(s.stock), kills: s.kills })),
+      },
+      radio: {
+        enabled: !!this.R.enabled,
+        quiet: this.inQuietHours(),
+        idleFor: Math.round(this.t - this.lastActive),
+        queue: this.radioQueue.slice(-30).reverse(),
+      },
     };
   }
 
@@ -536,6 +796,10 @@ class World {
     return {
       players: [...this.players.values()].map(p => ({ id: p.id, name: p.name, roles: [...p.roles], inv: p.inv })),
       turnins: this.turnins,
+      condition: this.condition,
+      wildMult: this.wildMult,
+      sectors: this.sectors.map(s => ({ name: s.name, stock: s.stock, kills: s.kills })),
+      radioQueue: this.radioQueue.slice(-50),
     };
   }
 }

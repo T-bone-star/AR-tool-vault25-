@@ -23,9 +23,12 @@
       <details id="srv-box">
         <summary>Server: <span id="srv-show"></span> <span id="srv-state" class="srvstate"></span></summary>
         <label>Serveradres (de GM-laptop)
-          <input id="server" autocomplete="off" spellcheck="false" placeholder="192.168.1.10:8080" />
+          <input id="server" autocomplete="off" spellcheck="false" placeholder="192.168.68.116:8090" />
         </label>
-        <button type="button" class="btn small ghost" id="test">VERBINDING TESTEN</button>
+        <div class="row">
+          <button type="button" class="btn small ghost" id="test">TESTEN</button>
+          <button type="button" class="btn small ghost" id="find">ZOEK SERVER</button>
+        </div>
       </details>
 
       <button type="submit" class="btn mode main" data-mode="terrein">START<small>op het terrein (GPS)</small></button>
@@ -74,6 +77,14 @@
       }
     }
     $('test').addEventListener('click', test);
+    $('find').addEventListener('click', async () => {
+      const st = $('srv-state'), btn = $('find');
+      btn.disabled = true;
+      const found = await net.findServer((d, t) => { st.className = 'srvstate'; st.textContent = `zoeken… ${Math.round(d / t * 100)}%`; });
+      btn.disabled = false;
+      if (found) { $('server').value = found; showSrv(); test(); }
+      else { st.textContent = '✗ geen server gevonden — zit je op de event-wifi?'; st.className = 'srvstate bad'; }
+    });
     test();
 
     let chosen = 'terrein';

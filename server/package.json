@@ -6,7 +6,7 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test/sim.test.js && node test/net.test.js && node test/client.test.js"
+    "test": "node test/sim.test.js && node test/net.test.js && node test/client.test.js && node test/gm.test.js"
   },
   "dependencies": {
     "ws": "^8.18.0"
@@ -15,6 +15,7 @@
     "node": ">=18"
   },
   "devDependencies": {
+    "jsdom": "^24.1.3",
     "three": "^0.164.1"
   }
 }

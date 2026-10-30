@@ -50,10 +50,12 @@ setInterval(() => {
   for (const c of conns) if (c.pid || c.gm) send(c, s);
 }, SNAP_MS);
 setInterval(() => {
-  if (world.dirty) {
-    world.dirty = false;
+  // GM-scherm elke seconde bijwerken (tellers als "al 4:30 los" lopen door)
+  world.dirty = false;
+  const gms = [...conns].filter(c => c.gm);
+  if (gms.length) {
     const s = JSON.stringify(world.gmState());
-    for (const c of conns) if (c.gm) send(c, s);
+    for (const c of gms) send(c, s);
   }
   if (world.saveNeeded) { world.saveNeeded = false; save(); }
 }, 1000);
@@ -67,6 +69,25 @@ const server = http.createServer((req, res) => {
   // CORS: de Android-app (origin http://localhost) mag de ping lezen
   res.setHeader('Access-Control-Allow-Origin', '*');
   const url = decodeURIComponent((req.url || '/').split('?')[0]);
+  // Bunkerradio: volgend bericht ophalen (204 = niets). Zie radio/paddock_radio.py
+  if (url.startsWith('/radio/')) {
+    const q = new URL(req.url, 'http://x').searchParams;
+    const R = cfg.radio || {};
+    if (R.token && q.get('token') !== R.token) { res.writeHead(403); res.end(); return; }
+    if (url === '/radio/next') {
+      const b = world.radioNext();
+      if (!b) { res.writeHead(204); res.end(); return; }
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify({ id: b.id, kind: b.kind, text: b.text, prompt: b.prompt }));
+      return;
+    }
+    if (url === '/radio/queue') {
+      res.writeHead(200, { 'Content-Type': 'application/json; charset=utf-8' });
+      res.end(JSON.stringify(world.radioQueue.slice(-30)));
+      return;
+    }
+    res.writeHead(404); res.end(); return;
+  }
   if (url === '/ping') {
     res.writeHead(200, { 'Content-Type': 'application/json' });
     res.end(JSON.stringify({ ok: true, name: 'vault25-paddock', players: [...world.players.values()].filter(p => p.online).length }));
@@ -123,6 +144,14 @@ wss.on('connection', (ws) => {
         if (m.op === 'role') world.gmSetRole(String(m.pid), String(m.role), !!m.on);
         if (m.op === 'reset') world.gmResetWorld();
         if (m.op === 'say' && m.text) world.event('gm', String(m.text).slice(0, 140));
+        if (m.op === 'condition') world.gmSetCondition(String(m.condition));
+        if (m.op === 'escape') {
+          const n = world.triggerEscape(String(m.type || ''), Math.max(1, Math.min(5, Number(m.count) || 1)), true);
+          send(c, { t: 'gm-msg', text: n ? `${n} ${n > 1 ? 'dieren breken' : 'dier breekt'} uit.` : 'Geen dier beschikbaar om uit te breken (allemaal al buiten?).' });
+        }
+        if (m.op === 'wildmult') world.gmSetWildMult(m.value);
+        if (m.op === 'wildrestore') world.gmRestoreWild();
+        if (m.op === 'radio') world.gmRadio(m.text);
         world.dirty = true;
         break;
       }
@@ -160,6 +189,7 @@ server.listen(PORT, () => {
   for (const ip of ips) {
     console.log(`  Spelers (app):  serveradres ${ip}:${PORT}`);
     console.log(`  GM-scherm:      http://${ip}:${PORT}/gm.html`);
+    console.log(`  Bunkerradio:    http://${ip}:${PORT}/radio/next`);
   }
   console.log(`  Lokaal testen:  http://localhost:${PORT}/  (simulatie)\n`);
   if (cfg.gmPassword === 'verander-mij') console.log('  ⚠ Verander gmPassword en de rolcodes in server/config.js!\n');

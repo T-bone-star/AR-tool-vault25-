@@ -129,6 +129,8 @@
   on('net-event', (e) => {
     const ev = e.detail;
     const mine = ev.by === net.id;
+    if (ev.kind === 'paddock') { (ev.condition === 'goed' ? sfxGood : sfxBad)(); toast((ev.condition === 'goed' ? '✓ ' : '⚠ ') + ev.text, 4500, ev.condition === 'goed' ? 'good' : 'bad'); }
+    if (ev.kind === 'radio') return;   // radioberichten zijn voor de bunkerradio, niet voor de nieuwsregel
     if (ev.kind === 'escape') { sfxBad(); toast('⚠ ' + ev.text + ' Houd het in je vizier en leid het door de opening terug.', 4500, 'bad'); }
     feedLine(ev.text, mine);
   });
@@ -136,7 +138,12 @@
 
   // ------------------------------------------------------- vizier/knop
   on('follow-count', (e) => { const r = $('reticle'); if (r) r.classList.toggle('lock', e.detail > 0); });
-  on('farm-stats', (e) => { $('stat-outside').textContent = e.detail.outside; $('stat-returned').textContent = e.detail.returned; });
+  on('farm-stats', (e) => {
+    $('stat-outside').textContent = e.detail.outside;
+    $('stat-returned').textContent = e.detail.returned;
+    const c = $('cond');
+    if (c) { c.textContent = { beschadigd: 'HEK BESCHADIGD', kapot: 'HEK KAPOT' }[e.detail.cond] || ''; c.className = 'cond-' + (e.detail.cond || 'goed'); }
+  });
   on('shot-local', () => { sfxShot(); flash(); });
   on('action-info', (e) => { sfxBad(); toast(e.detail.msg, 2200); });
 
