@@ -85,7 +85,7 @@ html, body {
 
 /* Pop-up meldingen */
 #toast {
-  position: fixed; bottom: 28px; left: 50%; transform: translateX(-50%) translateY(20px);
+  position: fixed; bottom: 130px; left: 50%; transform: translateX(-50%) translateY(20px);
   z-index: 11; max-width: 90%;
   background: rgba(3,21,11,0.92); border: 1px solid var(--pip);
   color: var(--pip); padding: 12px 18px; border-radius: 6px;
@@ -108,3 +108,115 @@ html, body {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 .loader-text { margin-left: 14px; }
+
+
+/* ================= Uitbreiding: modi, jagen, boeren, tas ================= */
+
+/* Startscherm en verify mogen scrollen */
+body.scroll { overflow-y: auto; height: auto; min-height: 100%; }
+body.scroll .start { position: static; min-height: 100vh; }
+.start h3 { margin: 28px 0 8px; font-size: 0.95rem; letter-spacing: 2px; opacity: 0.8; }
+.modes { display: flex; flex-direction: column; gap: 10px; width: 100%; max-width: 420px; }
+.btn.mode { display: block; text-align: center; margin-top: 0; }
+.btn.mode.main { margin-top: 18px; padding: 18px 40px; font-size: 1.3rem; }
+.btn.mode small { display: block; font-size: 0.72rem; letter-spacing: 0; opacity: 0.75; margin-top: 4px; }
+.btn.small { padding: 10px 16px; font-size: 0.9rem; margin-top: 12px; width: 100%; }
+.btn.ghost { border-color: var(--pip-dim); box-shadow: none; }
+.btn.danger { color: #ffcf3c; border-color: #ffcf3c; box-shadow: none; }
+.btn:disabled { opacity: 0.35; }
+.foot { margin-top: 24px; font-size: 0.8rem; }
+.foot a { color: var(--pip-dim); }
+
+/* Kamer-modus: camerabeeld achter de (transparante) 3D-laag */
+#camfeed { position: fixed; inset: 0; width: 100%; height: 100%; object-fit: cover; z-index: 0; background: #000; }
+body.cam-mode { background: #000; }
+.a-canvas { z-index: 1; }
+
+/* Vizier richt op iets */
+#reticle.aim { border-color: #fff; opacity: 1; }
+#reticle.aim::after { background: #fff; }
+#aim-info {
+  position: fixed; top: calc(50% + 40px); left: 50%; transform: translateX(-50%);
+  z-index: 9; font-size: 0.8rem; letter-spacing: 1px; padding: 3px 8px;
+  background: rgba(3,21,11,0.6); border-radius: 3px; opacity: 0; transition: opacity .2s;
+  pointer-events: none; white-space: nowrap;
+}
+#aim-info.show { opacity: 1; }
+
+/* Mondingsflits */
+#flash { position: fixed; inset: 0; z-index: 8; pointer-events: none; background: #fff3c4; opacity: 0; }
+#flash.go { animation: flash .18s ease-out; }
+@keyframes flash { 0% { opacity: .35; } 100% { opacity: 0; } }
+
+/* Buit-pil */
+#loot {
+  position: fixed; top: 64px; left: 50%; transform: translateX(-50%) translateY(-10px);
+  z-index: 11; color: #ffd23c; font-weight: bold; letter-spacing: 1px;
+  background: rgba(3,21,11,0.85); border: 1px solid #ffd23c; border-radius: 20px;
+  padding: 6px 14px; opacity: 0; transition: opacity .25s, transform .25s; pointer-events: none;
+  white-space: nowrap;
+}
+#loot.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+#gpsstatus {
+  position: fixed; top: 60px; left: 50%; transform: translateX(-50%); z-index: 11;
+  background: rgba(3,21,11,0.9); border: 1px solid var(--pip-dim); padding: 8px 12px;
+  border-radius: 4px; font-size: 0.85rem; text-align: center; max-width: 90%;
+}
+
+/* Knoppen */
+.hudbtn {
+  position: fixed; z-index: 12; font-family: inherit; font-size: 0.85rem; letter-spacing: 1px;
+  color: var(--pip); background: rgba(3,21,11,0.75); border: 1px solid var(--pip);
+  border-radius: 6px; padding: 12px 14px;
+}
+#btn-bag { left: 16px; bottom: calc(24px + env(safe-area-inset-bottom)); }
+#btn-recenter { left: 16px; top: 60px; padding: 8px 10px; font-size: 0.75rem; }
+.actionbtn {
+  position: fixed; right: 20px; bottom: calc(20px + env(safe-area-inset-bottom)); z-index: 12;
+  width: 96px; height: 96px; border-radius: 50%;
+  font-family: inherit; font-size: 1.05rem; font-weight: bold; letter-spacing: 2px;
+  background: rgba(3,21,11,0.8); color: var(--pip); border: 3px solid var(--pip);
+  box-shadow: 0 0 18px rgba(60,255,142,0.45);
+  touch-action: manipulation; -webkit-user-select: none; user-select: none;
+}
+.actionbtn:active { transform: scale(0.94); }
+.actionbtn.k-none { opacity: 0.6; }
+.actionbtn.k-jacht { color: #ff6b4a; border-color: #ff6b4a; box-shadow: 0 0 22px rgba(255,107,74,.6); }
+.actionbtn.k-oogst { color: #ffd23c; border-color: #ffd23c; box-shadow: 0 0 22px rgba(255,210,60,.6); }
+.actionbtn.k-melk  { color: #ffffff; border-color: #ffffff; box-shadow: 0 0 22px rgba(255,255,255,.5); }
+.actionbtn.k-groei { opacity: 0.5; }
+
+/* Panelen: tas + startknop */
+.panel, #tapstart {
+  position: fixed; z-index: 30; left: 50%; top: 50%; transform: translate(-50%, -50%);
+  width: min(360px, calc(100% - 32px)); max-height: calc(100% - 32px); overflow-y: auto;
+  background: rgba(3,21,11,0.96); border: 1px solid var(--pip); border-radius: 8px; padding: 18px;
+  box-shadow: 0 0 30px rgba(60,255,142,0.25);
+}
+.panel h3 { margin: 0 0 10px; letter-spacing: 3px; }
+#bag-list, .itemlist { list-style: none; padding: 0; margin: 0; text-align: left; width: 100%; max-width: 360px; }
+#bag-list li, .itemlist li {
+  display: flex; justify-content: space-between; padding: 6px 0;
+  border-bottom: 1px dashed var(--pip-dim);
+}
+#bag-list li.empty { justify-content: center; opacity: 0.7; border: 0; }
+#bag-list b, .itemlist b { color: #fff; }
+#turnin-code {
+  margin-top: 14px; padding: 12px; text-align: center; font-size: 1.1rem; font-weight: bold;
+  letter-spacing: 1px; color: #fff; border: 2px dashed #ffd23c; word-break: break-all;
+}
+#turnin-help { font-size: 0.8rem; opacity: 0.8; }
+#tapstart { text-align: center; }
+#tapstart .btn { margin-top: 0; }
+#tapstart p { font-size: 0.85rem; opacity: 0.85; line-height: 1.5; }
+[hidden] { display: none !important; }
+
+/* verify.html */
+.codein {
+  width: 100%; max-width: 420px; padding: 14px; font-family: inherit; font-size: 1.1rem;
+  background: #03150b; color: #fff; border: 2px solid var(--pip); border-radius: 4px;
+  text-transform: uppercase; letter-spacing: 1px;
+}
+.good { color: var(--pip); font-weight: bold; }
+.bad { color: #ff6b4a; font-weight: bold; }

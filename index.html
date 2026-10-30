@@ -6,62 +6,43 @@
   <title>Vault 25 — AR Brahmin Paddock</title>
   <link rel="stylesheet" href="css/style.css" />
 </head>
-<body>
+<body class="scroll">
   <div class="start">
     <h1>VAULT 25</h1>
     <h2>AR BRAHMIN PADDOCK</h2>
-    <p>Welkom, bewoner. Houd je telefoon omhoog en bekijk de paddock met
-       de brahmin en ander vee. Soms breekt er een dier uit het touwen­hek.
-       <b>Richt je camera op het dier</b> en houd het in het vizier —
-       het loopt dan met je mee, zodat je het terug de omheining in leidt.</p>
+    <p>Welkom, bewoner. Hoed het vee, oogst de akkers en jaag op wat er rond
+       de paddock rondscharrelt. Breekt er een dier uit? <b>Houd het in je
+       vizier</b> en leid het terug door de opening in het hek.</p>
+
+    <a class="btn mode main" href="ar.html?mode=terrein">START<small>op het terrein (GPS)</small></a>
+
+    <h3>Testen zonder opbouw</h3>
+    <div class="modes">
+      <a class="btn mode" href="ar.html?mode=sim">SIMULATIE
+        <small>pc of telefoon · geen camera of GPS · slepen om te kijken, WASD om te lopen</small></a>
+      <a class="btn mode" href="ar.html?mode=kamer">KAMER-AR
+        <small>camera + gyro · geen GPS · paddock verkleind voor je neus</small></a>
+      <a class="btn mode" href="ar.html?mode=hier">HIER
+        <small>GPS · paddock op ware grootte waar jij nu staat (park, grasveld)</small></a>
+    </div>
 
     <ul>
-      <li>📍 Sta op het echte terrein (GPS wordt gebruikt).</li>
-      <li>📷 Geef toegang tot camera én locatie als erom gevraagd wordt.</li>
-      <li>🐄 Lok uitgebroken dieren terug met je cameravizier.</li>
+      <li>🎯 Richt het vizier en druk op de grote knop: <b>vuur</b> op wild, <b>oogst</b> rijpe akkers, <b>melk</b> brahmin.</li>
+      <li>🐄 Uitgebroken vee volgt je blik — maar alleen door de poort kan het weer naar binnen.</li>
+      <li>🎒 Lever je tas in bij de handelspost: je krijgt een code voor de SL.</li>
     </ul>
 
-    <button class="btn" id="startBtn">START AR</button>
     <div class="warn" id="warn"></div>
+    <p class="foot"><a href="verify.html">Code controleren (SL)</a></p>
   </div>
 
   <script src="js/config.js"></script>
   <script>
-    const btn = document.getElementById('startBtn');
     const warn = document.getElementById('warn');
-
-    // Camera + GPS werken alleen via https (of localhost).
-    if (window.VAULT25_CONFIG.demoMode) {
-      warn.textContent = 'ℹ Demo-modus staat aan (js/config.js): GPS wordt genegeerd en de paddock staat recht voor je.';
-    } else if (location.protocol !== 'https:' &&
-        location.hostname !== 'localhost' &&
-        location.hostname !== '127.0.0.1') {
-      warn.textContent = '⚠ Open deze pagina via https, anders blokkeert je telefoon camera/GPS.';
+    const local = ['localhost', '127.0.0.1'].includes(location.hostname);
+    if (location.protocol !== 'https:' && !local) {
+      warn.textContent = '⚠ Geen https: camera/GPS werken dan niet. Alleen SIMULATIE gaat wel.';
     }
-
-    async function requestPermissions() {
-      // iOS 13+: bewegingssensors vereisen expliciete toestemming op een tik.
-      try {
-        if (typeof DeviceOrientationEvent !== 'undefined' &&
-            typeof DeviceOrientationEvent.requestPermission === 'function') {
-          await DeviceOrientationEvent.requestPermission();
-        }
-      } catch (e) { /* niet fataal */ }
-
-      // Trigger de GPS-prompt alvast (alleen in echte AR-modus).
-      if (!window.VAULT25_CONFIG.demoMode && 'geolocation' in navigator) {
-        await new Promise((res) => {
-          navigator.geolocation.getCurrentPosition(res, res, { timeout: 8000 });
-        });
-      }
-    }
-
-    btn.addEventListener('click', async () => {
-      btn.disabled = true;
-      btn.textContent = 'LADEN…';
-      await requestPermissions();
-      location.href = 'ar.html';
-    });
   </script>
 </body>
 </html>

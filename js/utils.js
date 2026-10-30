@@ -52,6 +52,17 @@ V25.utils = {
     return this.centroid(polygon);
   },
 
+  // Korte checksum (FNV-1a, 4 tekens) voor de inlevercode.
+  // Geen echte beveiliging — genoeg om overtypen/verzinnen te betrappen.
+  hash(str) {
+    let h = 0x811c9dc5;
+    for (let i = 0; i < str.length; i++) {
+      h ^= str.charCodeAt(i);
+      h = Math.imul(h, 0x01000193);
+    }
+    return (h >>> 0).toString(36).toUpperCase().padStart(7, '0').slice(-4);
+  },
+
   // Hoek (graden) tussen twee genormaliseerde richtingen in het XZ-vlak
   angleBetweenDeg(ax, az, bx, bz) {
     const dot = V25.utils.clamp(ax * bx + az * bz, -1, 1);

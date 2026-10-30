@@ -2,9 +2,11 @@
 
 Een WebAR-ervaring waarmee bezoekers met hun telefoon een Fallout-achtige
 boerderij van **Vault 25** over een echte plek heen zien: brahmin en ander
-vee in een omheining van touwen en paaltjes, akkers op het terrein, en dieren
-die soms **uitbreken**. Richt je cameravizier op een ontsnapt dier en het
-**loopt met je mee** tot je het weer binnen de omheining hebt geleid.
+vee in een omheining van touwen en paaltjes, akkers op het terrein, en wild
+eromheen. Spelers **jagen** (radroaches, molerats, geckos), **oogsten** rijpe
+akkers, **melken** brahmin en **leiden uitgebroken vee terug** door de poort.
+Alles wat ze verzamelen gaat in een tas, die ze bij de handelspost inleveren
+met een code die een SL controleert.
 
 Werkt direct in de telefoonbrowser — **geen app-installatie nodig**.
 
@@ -39,14 +41,27 @@ Verder kun je hier instellen:
   schaal en (optioneel) een eigen 3D-model;
 - **gedrag** (`behavior`): loopsnelheden, lok-hoek/afstand, uitbraaktiming.
 
-### 2. Test binnen zonder GPS
-Zet in `js/config.js`:
-```js
-demoMode: true,
+### 2. Testen zonder opbouw — vier modi
+Het startscherm (`index.html`) heeft een knop per modus; je kunt ook direct
+`ar.html?mode=...` openen.
+
+| Modus | Wat je nodig hebt | Waar | Wat je ziet |
+|---|---|---|---|
+| `sim` | niets (geen https nodig op localhost) | pc of telefoon, overal | 3D-wereld; slepen = kijken, WASD = lopen, spatie = actie |
+| `kamer` | camera + gyro, **geen GPS** | woonkamer, kantine | camerabeeld met de paddock **verkleind** (schaal 0.2) voor je neus |
+| `hier` | GPS | elk grasveld/park | paddock op ware grootte **waar jij staat** — geen coördinaten nodig |
+| `terrein` | GPS + `anchor` in config | het eventterrein | de echte opstelling |
+
+Extra: `&schaal=0.3` overschrijft de schaal (bv. `ar.html?mode=kamer&schaal=0.35`
+voor een grotere kamer). In `kamer` en `hier` zet de knop **⟲ ZET VOOR MIJ**
+de paddock opnieuw recht voor je neer.
+
+**Lokaal op je pc (sim):**
+```bash
+cd AR-tool-vault25-
+python3 -m http.server 8000
+# open http://localhost:8000/ar.html?mode=sim
 ```
-Dan negeert de app GPS en zet de boerderij recht voor je. Op desktop loop je
-rond met **WASD/pijltjes** en kijk je met **slepen**. Handig om alles te
-controleren voor je naar buiten gaat. Zet daarna weer op `false` voor de echte AR.
 
 ### 3. Online zetten (HTTPS verplicht!)
 Telefoons geven alleen toegang tot camera + GPS via **https**. Twee makkelijke opties:
@@ -65,12 +80,35 @@ npx localtunnel --port 8000
 ```
 Open de https-URL op je telefoon, **op het terrein staand**.
 
-### 4. Gebruik
-- Open de URL → knop **START AR** → geef camera- en locatietoegang.
-- Loop rond; binnen de omheining grazen de dieren.
-- Na een tijdje breekt er één uit (melding onderin).
-- Houd het dier in het **ronde vizier** in het midden → het volgt je →
-  loop terug naar het hek → het dier is terug. Teller bovenin houdt de score bij.
+### 4. Spelen
+Eén grote knop rechtsonder doet wat past bij waar je vizier op staat:
+
+| Vizier op | Knop | Resultaat |
+|---|---|---|
+| wild | **VUUR** (rood) | raak = buit (vlees/huid); mis = het beest vlucht |
+| brahmin binnen het hek | **MELK** (wit) | +1 melk, daarna 60 s rust per dier |
+| rijpe akker (gloeit) | **OOGST** (geel) | opbrengst in de tas, akker begint opnieuw |
+| groeiende akker | **…** | "nog niet rijp" |
+
+**Uitgebroken vee** (melding onderin): houd het in je vizier tot het vizier
+amber wordt — dan volgt het je **blik** over de grond. Het kan niet door de
+touwen: leid het om het hek heen naar de **opening**. Terug binnen = 5
+kroonkurken. Een teruggeleid dier blijft daarna ~90 s rustig.
+
+**Inleveren:** 🎒 TAS → INLEVEREN → de speler toont de code (bv.
+`V25-K7-TAT4-VLS2-KK5-9QX2`). De SL opent `verify.html`, typt de code in en
+ziet direct of 'ie klopt en wat erin zit; met AFVINKEN herkent dat apparaat
+dubbel inleveren. Daarna maakt de speler de tas leeg.
+⚠ Verander `turnIn.salt` in `js/config.js` vóór het event.
+
+Alle getallen (groeitijden, buit, trefkans, beloningen, hoeveel wild) staan in
+`js/config.js`.
+
+### 5. Speeltest (na elke config-wijziging)
+```bash
+cd tests && npm install && npm test
+```
+Speelt zonder browser een complete ronde na en meldt wat er niet klopt.
 
 ## Eigen 3D-modellen (optioneel)
 Standaard gebruikt de app simpele blok-vormen (de brahmin heeft netjes twee
@@ -83,15 +121,19 @@ Zie `assets/README.md` voor tips.
 
 ## Bestanden
 ```
-index.html          Startscherm + toestemmingen
+index.html          Startscherm + keuze testmodus
 ar.html             De AR-scene (laadt A-Frame + AR.js)
+verify.html         Code-controle voor SL's / handelaren
 css/style.css       Pip-Boy/Vault stijl
 js/config.js        >>> ALLES wat je wilt aanpassen <<<
-js/utils.js         Wiskunde-hulpjes
-js/farm-builder.js  Bouwt hek, akkers, dieren; centrale "farm"-staat
-js/animal.js        Diergedrag + lok-mechaniek
-js/ui.js            HUD en meldingen
-js/bootstrap.js     Zet de scene op (AR- of demo-modus)
+js/utils.js         Wiskunde-hulpjes + checksum
+js/inventory.js     Tas, opslaan op de telefoon, inlevercode
+js/farm-builder.js  Bouwt hek, akkers, dieren; richten/blikpunt; poortregel
+js/animal.js        Vee: grazen, uitbreken, lokken, melken
+js/wildlife.js      Wild: verschijnen, vluchten, neergaan, buit
+js/interact.js      Richten + de actieknop; gewasgroei
+js/ui.js            HUD, knoppen, tas, meldingen, geluid
+js/bootstrap.js     Zet de scene op per modus (sim/kamer/hier/terrein)
 ```
 
 ## Tips voor op locatie

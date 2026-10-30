@@ -1,54 +1,57 @@
 /*
  * Vault 25 AR Farm — configuratie
  * ================================
- * Dit is het ENIGE bestand dat je normaal hoeft aan te passen om de
- * ervaring op jouw echte locatie te zetten.
+ * Dit is het ENIGE bestand dat je normaal hoeft aan te passen.
  *
- * Coordinatenstelsel:
- *   - We kiezen 1 GPS-ankerpunt (ANCHOR) = de "oorsprong" van de boerderij.
- *   - Al het andere (omheining, akkers, dieren) wordt geplaatst in LOKALE
- *     meters t.o.v. dat anker:  x = oost (+) / west (-),  z = zuid (+) / noord (-).
- *   - Zo blijft het bewegen/lokken van dieren vloeiend (lokale 3D i.p.v. GPS-gehannes).
+ * Coordinatenstelsel ("farm-meters"):
+ *   Alles (hek, akkers, dieren, wild) staat in lokale meters rond het
+ *   middelpunt van de boerderij: x = oost (+) / west (-), z = zuid (+) / noord (-).
+ *   Met de `schaal` van een testmodus wordt het geheel kleiner of groter,
+ *   zodat dezelfde boerderij ook in je woonkamer past.
  *
- * Tip om coordinaten te vinden: open Google Maps, klik op de plek,
- * rechtsklik -> de eerste regel zijn latitude, longitude.
+ * Testmodi (kies via het startscherm of ?mode=... in de URL):
+ *   sim     — gewone 3D op pc of telefoon, geen camera/GPS. Rondkijken met
+ *             slepen, lopen met WASD/pijltjes. Overal, direct.
+ *   kamer   — camerabeeld + gyroscoop, GEEN GPS. De boerderij verschijnt
+ *             verkleind voor je neus. Woonkamer, tuin, kantine.
+ *   hier    — echte GPS-AR, maar de boerderij wordt neergezet waar JIJ
+ *             staat (recht voor je). Elk grasveld of park, geen opbouw.
+ *   terrein — het echte event: vast GPS-anker uit `anchor` hieronder.
+ * Extra: ?schaal=0.3 overschrijft de schaal van de gekozen modus.
  */
 
 window.VAULT25_CONFIG = {
 
-  // --- 1. GPS-anker: het middelpunt van het terrein -----------------------
-  // Vervang dit door de echte coordinaten van jouw boerderij-locatie.
+  // --- 1. GPS-anker (alleen voor modus "terrein") --------------------------
   anchor: {
-    latitude: 52.379189,    // <-- AANPASSEN
+    latitude: 52.379189,    // <-- AANPASSEN naar het eventterrein
     longitude: 4.899431,    // <-- AANPASSEN
-
-    // Draai de hele boerderij (graden, om de verticale as) zodat het hek
-    // mooi uitgelijnd staat met het echte terrein. 0 = lokale +x wijst oost.
+    // Draai de hele boerderij (graden) om 'm langs het terrein uit te lijnen.
     rotationDeg: 0,
-
-    // In GPS-modus hangt de "camera" op de hoogte van je telefoon (~ooghoogte).
-    // De boerderij moet dus ONDER dat punt staan, anders zweeft alles op
-    // ooghoogte. -1.6 = grond ligt 1,6 m onder de telefoon.
+    // De GPS-camera hangt op telefoonhoogte; de grond ligt zoveel lager.
     groundOffsetMeters: -1.6,
   },
 
-  // --- AR fijnafstelling ----------------------------------------------------
+  // --- AR fijnafstelling (modi "hier" en "terrein") ------------------------
   ar: {
-    // Hoeveel meter je moet bewegen voor een GPS-update van de camera.
-    // Kleiner = directer volgen, maar meer "springen" door GPS-ruis.
-    gpsMinDistance: 1,
-    // Demping van sensor-jitter (0-1, kleiner = rustiger beeld). 0.1 is de
-    // door AR.js aanbevolen waarde.
-    smoothingFactor: 0.1,
+    gpsMinDistance: 1,      // meter bewegen voor een GPS-update
+    smoothingFactor: 0.1,   // demping sensor-getril (kleiner = rustiger)
   },
 
-  // Toon dieren ook zonder GPS-fix (handig om binnen te testen op de bank).
-  // In "demo"-modus wordt GPS genegeerd en staat de boerderij recht voor je.
+  // Verouderd: gebruik ?mode=sim. Staat dit op true, dan is "sim" de
+  // standaard als er geen mode in de URL staat.
   demoMode: false,
 
+  // --- Testmodi ------------------------------------------------------------
+  modes: {
+    sim:     { scale: 1,   viewDistance: 14 },
+    // 0.2 = een hek van 16x12 m wordt 3,2 x 2,4 m: past in een woonkamer.
+    kamer:   { scale: 0.2, viewDistance: 14, cameraHeight: 1.4 },
+    hier:    { scale: 1,   viewDistance: 14 },
+    terrein: { scale: 1 },
+  },
+
   // --- 2. De omheining (palen + touwen) -----------------------------------
-  // Polygoon in lokale meters. De volgorde bepaalt de vorm van het hek.
-  // Standaard is dit een rechthoek van ~16 x 12 meter.
   enclosure: {
     points: [
       { x: -8, z: -6 },
@@ -56,48 +59,101 @@ window.VAULT25_CONFIG = {
       { x:  8, z:  6 },
       { x: -8, z:  6 },
     ],
-    postSpacing: 2.0,      // meter tussen de paaltjes langs een touw
-    postHeight: 1.1,       // hoogte van een paaltje in meter
-    ropeSagging: 0.12,     // hoe ver het touw doorhangt (cosmetisch)
-    // De "poort" / opening waar dieren door uitbreken.
-    // Index verwijst naar de zijde tussen points[index] en points[index+1].
+    postSpacing: 2.0,
+    postHeight: 1.1,
+    ropeSagging: 0.12,
+    // Opening waar dieren uitbreken — en waar je ze weer DOORHEEN moet
+    // leiden. Dwars door de touwen kan niet.
     gate: { sideIndex: 0, widthMeters: 2.5 },
   },
 
-  // --- 3. Akkers / velden -------------------------------------------------
-  // Elk veld is een rechthoek (lokale meters) met gewasrijen.
+  // --- 3. Akkers -----------------------------------------------------------
+  // growSeconds = tijd van zaaien tot rijp. yield = opbrengst bij oogsten.
+  // crop verwijst naar een sleutel in `items` hieronder.
+  // Tip: voor het event kun je growSeconds flink verhogen (bv. 1800 = 30 min).
   fields: [
-    { x: -5, z:  10, width: 6, depth: 4, rows: 6, crop: 'tato'  },
-    { x:  5, z:  10, width: 6, depth: 4, rows: 6, crop: 'mutfruit' },
-    { x: 12, z:  0,  width: 4, depth: 8, rows: 4, crop: 'corn'  },
+    { x: -5, z: 10, width: 6, depth: 4, rows: 6, crop: 'tato',     growSeconds: 90,  yield: 4 },
+    { x:  5, z: 10, width: 6, depth: 4, rows: 6, crop: 'mutfruit', growSeconds: 120, yield: 3 },
+    { x: 12, z: 0,  width: 4, depth: 8, rows: 4, crop: 'mais',     growSeconds: 150, yield: 4 },
   ],
 
-  // --- 4. Dieren ----------------------------------------------------------
-  // count = hoeveel van dit type. escapes = hoeveel ervan mogen uitbreken.
-  // model = optioneel pad naar een eigen .glb model (zie assets/README.md).
-  // Laat model leeg ("") om de ingebouwde placeholder-vorm te gebruiken.
+  // --- 4. Vee ------------------------------------------------------------
+  // escapes = hoeveel er mogen uitbreken. product = wat je kunt "melken"
+  // (richt + actieknop, binnen het hek). Laat leeg voor geen product.
   animals: [
-    { type: 'brahmin', count: 3, escapes: 1, model: '', color: '#caa472', scale: 1.0 },
-    { type: 'radstag', count: 2, escapes: 1, model: '', color: '#9b7d5a', scale: 0.9 },
-    { type: 'molerat', count: 2, escapes: 0, model: '', color: '#7a6b5d', scale: 0.5 },
+    { type: 'brahmin', count: 3, escapes: 1, model: '', color: '#caa472', scale: 1.0, product: 'melk' },
+    { type: 'radstag', count: 2, escapes: 1, model: '', color: '#9b7d5a', scale: 0.9, product: '' },
+    { type: 'molerat', count: 2, escapes: 0, model: '', color: '#7a6b5d', scale: 0.5, product: '' },
   ],
 
-  // --- 5. Gedrag / spelregels --------------------------------------------
-  behavior: {
-    grazeSpeed: 0.25,        // m/s rondscharrelen binnen het hek
-    escapeSpeed: 0.6,        // m/s tijdens uitbreken
-    followSpeed: 0.9,        // m/s als het dier je volgt (gelokt)
-    wanderRadiusOutside: 12, // hoe ver buiten het hek een dier mag dwalen
-    lureAngleDeg: 28,        // cameravizier moet binnen deze hoek op het dier staan
-    lureRangeMeters: 18,     // en het dier moet binnen deze afstand zijn
-    lureFollowDistance: 2.2, // het dier blijft op deze afstand voor je lopen
-    escapeAfterSeconds: 8,   // na hoeveel seconden het eerste dier uitbreekt
-    escapeIntervalSeconds: 20, // tijd tussen volgende uitbraken
+  // --- 5. Wild (jagen) ---------------------------------------------------
+  // Wild verschijnt rond de boerderij (buiten het hek) en vlucht als je te
+  // dichtbij komt of mist. Richt + actieknop = schieten.
+  wildlife: {
+    maxAlive: 4,             // max tegelijk in leven
+    firstSpawnSeconds: 4,
+    respawnSeconds: 15,
+    spawnMinRadius: 12,      // farm-meters vanaf het midden (buiten het hek)
+    spawnMaxRadius: 22,
+    types: [
+      { type: 'radroach', label: 'Radroach', weight: 3, color: '#5a3a1e', speed: 1.4,
+        skittishRange: 4, hitChance: 0.9, radius: 0.35, aimHeight: 0.12, scale: 1.0,
+        loot: { vlees: 1 } },
+      { type: 'molerat', label: 'Molerat', weight: 2, color: '#b88a7a', speed: 1.0,
+        skittishRange: 5, hitChance: 0.8, radius: 0.45, aimHeight: 0.22, scale: 1.0,
+        loot: { vlees: 1, huid: 1 } },
+      { type: 'gecko', label: 'Gecko', weight: 1, color: '#7a8a3a', speed: 1.8,
+        skittishRange: 7, hitChance: 0.65, radius: 0.45, aimHeight: 0.25, scale: 1.1,
+        loot: { vlees: 2, huid: 1 } },
+    ],
   },
 
-  // --- 6. Sfeer -----------------------------------------------------------
+  // --- 6. Gedrag / spelregels --------------------------------------------
+  behavior: {
+    grazeSpeed: 0.25,
+    escapeSpeed: 0.6,
+    followSpeed: 0.9,
+    wanderRadiusOutside: 12,
+    lureAngleDeg: 28,          // vizier binnen deze hoek op het dier = lokken
+    lureKeepAngleDeg: 60,      // eenmaal gelokt: zo ver mag het uit het midden
+    lureLoseSeconds: 3,        // zo lang uit beeld voordat je 'm kwijt bent
+    lureRangeMeters: 18,
+    lureFollowDistance: 2.2,
+    escapeAfterSeconds: 8,
+    escapeIntervalSeconds: 20,
+    reEscapeSeconds: 90,       // rust na terugleiden voor hetzelfde dier opnieuw uitbreekt
+    milkCooldownSeconds: 60,   // per dier
+    shotCooldownSeconds: 0.7,
+    maxShotRange: 25,          // farm-meters
+  },
+
+  // --- 7. Spullen + beloningen -------------------------------------------
+  // code = korte afkorting in de inlevercode (alleen hoofdletters!).
+  items: {
+    tato:        { label: 'Tato',         code: 'TAT' },
+    mutfruit:    { label: 'Mutfruit',     code: 'MUT' },
+    mais:        { label: 'Maïs',         code: 'MAI' },
+    melk:        { label: 'Brahmin-melk', code: 'MLK' },
+    vlees:       { label: 'Vlees',        code: 'VLS' },
+    huid:        { label: 'Huid',         code: 'HUI' },
+    kroonkurken: { label: 'Kroonkurken',  code: 'KK'  },
+  },
+  rewards: {
+    returnAnimal: { kroonkurken: 5 },  // per teruggeleid dier
+  },
+
+  // --- 8. Inleveren ------------------------------------------------------
+  // Spelers krijgen een code die een SL controleert met verify.html.
+  // VERANDER de salt vóór het event en houd 'm voor jezelf.
+  turnIn: {
+    buttonLabel: 'INLEVEREN BIJ DE HANDELSPOST',
+    help: 'Laat deze code zien aan een SL of handelaar. Pas daarna je tas leegmaken.',
+    salt: 'verander-mij-vault25',
+  },
+
+  // --- 9. Sfeer ----------------------------------------------------------
   theme: {
     label: 'VAULT 25 — BRAHMIN PADDOCK',
-    primaryColor: '#3cff8e',   // Pip-Boy groen
+    primaryColor: '#3cff8e',
   },
 };

@@ -20,6 +20,7 @@
       scale: { type: 'number', default: 1 },
       model: { type: 'string', default: '' },
       canEscape: { type: 'boolean', default: false },
+      product: { type: 'string', default: '' },   // bv. 'melk'
     },
 
     init() {
@@ -30,9 +31,16 @@
       this.pauseUntil = 0;      // grazen: pauzemoment
       this.lostLureFor = 0;     // hoelang we de lok-lijn kwijt zijn
       this.bobPhase = Math.random() * Math.PI * 2;
+      this.lastMilk = -1e9;     // tijdstip laatste keer gemolken
+      this.escapeLeg = 0;       // 0 = naar de poort, 1 = erdoorheen naar buiten
+      this.blocked = false;     // staat tegen het hek aan
+      this.blockHinted = false;
+      // Trefzone voor richten (farm-meters, rekening houdend met schaal)
+      this.aimHeight = 0.9 * this.data.scale;
+      this.radius = 0.8 * this.data.scale;
 
       // Verspreid de uitbraken over de tijd zodat ze niet tegelijk ontsnappen
-      if (this.data.canEscape) {
+      if (this.data.canEscape && this.sys.gateMid) {
         const slot = this.sys.escapeSlot = (this.sys.escapeSlot || 0) + 1;
         this.escapeAt = B.escapeAfterSeconds + (slot - 1) * B.escapeIntervalSeconds;
       } else {
@@ -46,6 +54,17 @@
     isOutside() {
       const p = this.el.object3D.position;
       return !U.pointInPolygon(p.x, p.z, this.sys.enclosure);
+    },
+
+    // Melken: alleen binnen het hek, rustig grazend, en niet te vaak.
+    canMilk(t) {
+      return !!this.data.product && this.state === 'GRAZE' && !this.isOutside() &&
+        t - this.lastMilk >= B.milkCooldownSeconds;
+    },
+    milk(t) {
+      this.lastMilk = t;
+      V25.inv.add(this.data.product, 1);
+      this.el.emit('animal-milked', { type: this.data.type, product: this.data.product }, true);
     },
 
     // -----------------------------------------------------------------
@@ -142,19 +161,22 @@
     },
 
     // Beweeg richting this.target met snelheid v (m/s). Geeft true bij aankomst.
+    // Het hek is "vast": oversteken kan alleen door de poortopening.
     moveTo(v, dt) {
       if (!this.target) return true;
       const p = this.el.object3D.position;
       const d = U.dist2D(p.x, p.z, this.target.x, this.target.z);
-      if (d < 0.25) return true;
+      if (d < 0.25) { this.blocked = false; return true; }
       const step = Math.min(v * dt, d);
       const nx = (this.target.x - p.x) / d;
       const nz = (this.target.z - p.z) / d;
-      p.x += nx * step;
-      p.z += nz * step;
+      const x1 = p.x + nx * step, z1 = p.z + nz * step;
+      if (!this.sys.fenceAllows(p.x, p.z, x1, z1)) { this.blocked = true; return false; }
+      this.blocked = false;
+      p.x = x1;
+      p.z = z1;
       // Draai naar de looprichting (model kijkt langs +x, dus offset 90 graden)
-      const yaw = Math.atan2(nx, nz);
-      this.el.object3D.rotation.y = yaw - Math.PI / 2;
+      this.el.object3D.rotation.y = Math.atan2(nx, nz) - Math.PI / 2;
       return false;
     },
 
@@ -168,21 +190,18 @@
     },
 
     startEscape() {
-      // Mik op een punt net buiten de poort
-      const g = CFG.enclosure.gate;
-      const pts = this.sys.enclosure;
-      const a = pts[g.sideIndex], b = pts[(g.sideIndex + 1) % pts.length];
-      const mid = { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 };
-      const c = this.sys.center;
-      // richting van centrum door de poort naar buiten
-      const dx = mid.x - c.x, dz = mid.z - c.z;
-      const len = Math.sqrt(dx * dx + dz * dz) || 1;
-      this.target = { x: mid.x + (dx / len) * 4, z: mid.z + (dz / len) * 4 };
+      // Eerst naar de binnenkant van de poort, dan erdoorheen naar buiten.
       this.state = 'ESCAPE';
+      this.escapeLeg = 0;
+      this.target = { ...this.sys.gateInside };
     },
 
     tickEscape(dt) {
-      this.moveTo(B.escapeSpeed, dt);
+      const arrived = this.moveTo(B.escapeSpeed, dt);
+      if (this.escapeLeg === 0 && (arrived || this.blocked)) {
+        this.escapeLeg = 1;
+        this.target = { ...this.sys.gateOutside };
+      }
       if (this.isOutside()) {
         this.state = 'WANDER_OUTSIDE';
         this.target = null;
@@ -195,7 +214,7 @@
       // Check of de speler 'm lokt
       if (this.checkLure()) { this.startFollow(); return; }
       // Anders rustig buiten rondscharrelen
-      if (!this.target || this.moveTo(B.grazeSpeed, dt)) {
+      if (!this.target || this.moveTo(B.grazeSpeed, dt) || this.blocked) {
         this.target = this.pickOutsideTarget();
       }
     },
@@ -224,11 +243,15 @@
     startFollow() {
       this.state = 'FOLLOW';
       this.lostLureFor = 0;
+      this.blockHinted = false;
       this.el.emit('animal-follow-start', { type: this.data.type }, true);
     },
 
     // Staat het cameravizier op dit dier en is het dichtbij genoeg?
-    checkLure() {
+    // maxAngle: oppakken vraagt precies richten (lureAngleDeg); een dier dat
+    // al volgt mag ruimer in beeld blijven (lureKeepAngleDeg), anders raak je
+    // het kwijt zodra je het een bocht laat maken.
+    checkLure(maxAngle = B.lureAngleDeg) {
       const cam = this.sys.getCameraGround();
       const p = this.el.object3D.position;
       const d = U.dist2D(cam.x, cam.z, p.x, p.z);
@@ -236,14 +259,14 @@
       const toAnimal = { x: (p.x - cam.x) / (d || 1), z: (p.z - cam.z) / (d || 1) };
       const fwd = this.sys.getCameraForward();
       const angle = U.angleBetweenDeg(fwd.x, fwd.z, toAnimal.x, toAnimal.z);
-      return angle <= B.lureAngleDeg;
+      return angle <= maxAngle;
     },
 
     tickFollow(dt) {
-      const stillLured = this.checkLure();
+      const stillLured = this.checkLure(B.lureKeepAngleDeg || B.lureAngleDeg * 2);
       if (!stillLured) {
         this.lostLureFor += dt;
-        if (this.lostLureFor > 2.5) { // 2,5s uit beeld -> raakt 'm kwijt
+        if (this.lostLureFor > (B.lureLoseSeconds || 3)) { // te lang uit beeld -> kwijt
           this.state = 'WANDER_OUTSIDE';
           this.target = null;
           this.el.emit('animal-follow-end', { type: this.data.type }, true);
@@ -253,21 +276,38 @@
         this.lostLureFor = 0;
       }
 
-      // Loop naar een punt vlak voor de speler, zodat hij/zij het hek in trekt
-      const cam = this.sys.getCameraGround();
-      const fwd = this.sys.getCameraForward();
-      this.target = {
-        x: cam.x + fwd.x * B.lureFollowDistance,
-        z: cam.z + fwd.z * B.lureFollowDistance,
-      };
+      // Loop naar het punt op de grond waar je vizier naar wijst. Zo kun je
+      // een dier ook "sturen" zonder zelf te lopen (kamer-modus), en in het
+      // veld loopt het gewoon met je blik mee.
+      const g = this.sys.gazeGround(B.lureRangeMeters);
+      if (g.hit) {
+        this.target = { x: g.x, z: g.z };
+      } else {
+        const cam = this.sys.getCameraGround();
+        const fwd = this.sys.getCameraForward();
+        this.target = {
+          x: cam.x + fwd.x * B.lureFollowDistance,
+          z: cam.z + fwd.z * B.lureFollowDistance,
+        };
+      }
       this.moveTo(B.followSpeed, dt);
+      if (this.blocked && !this.blockHinted) {
+        this.blockHinted = true;
+        this.el.emit('animal-blocked', { type: this.data.type }, true);
+      }
 
       // Binnen het hek? Dan is 'ie terug.
       if (!this.isOutside()) {
         this.state = 'GRAZE';
         this.target = null;
         this.pauseUntil = this.age + 1;
+        // Nieuwe uitbraak pas na een flinke rustperiode — anders breekt het
+        // dier meteen weer uit (en wordt terugleiden een kroonkurkenpomp).
+        const re = B.reEscapeSeconds || 90;
+        this.escapeAt = this.age + re * U.rand(0.8, 1.5);
         this.sys.notifyReturned();
+        const rw = (CFG.rewards && CFG.rewards.returnAnimal) || {};
+        for (const k in rw) V25.inv.add(k, rw[k]);
         this.el.emit('animal-follow-end', { type: this.data.type }, true);
         this.el.emit('animal-returned', { type: this.data.type }, true);
       }

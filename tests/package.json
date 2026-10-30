@@ -1,0 +1,6 @@
+{
+  "name": "vault25-ar-speeltest",
+  "private": true,
+  "scripts": { "test": "node speeltest.js" },
+  "dependencies": { "three": "0.164.1" }
+}

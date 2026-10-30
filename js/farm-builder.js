@@ -26,41 +26,119 @@
       this.totalEscaped = 0;
       this.totalReturned = 0;
       this.animals = [];
+      this.fields = [];     // akkers (groei/oogst), gevuld door farm-builder
+      this.critters = [];   // wild (jagen), gevuld door wildlife.js
+      this.initGate();
+    },
+
+    // Poort: midden, een punt net binnen en een punt buiten.
+    initGate() {
+      const g = CFG.enclosure.gate;
+      if (!g) return;
+      const pts = this.enclosure;
+      const a = pts[g.sideIndex], b = pts[(g.sideIndex + 1) % pts.length];
+      const mid = { x: (a.x + b.x) / 2, z: (a.z + b.z) / 2 };
+      let dx = this.center.x - mid.x, dz = this.center.z - mid.z;
+      const len = Math.hypot(dx, dz) || 1;
+      dx /= len; dz /= len;
+      this.gateMid = mid;
+      this.gateHalf = g.widthMeters / 2;
+      this.gateInside = { x: mid.x + dx * 1.5, z: mid.z + dz * 1.5 };
+      this.gateOutside = { x: mid.x - dx * 4, z: mid.z - dz * 4 };
     },
 
     registerAnimal(el) { this.animals.push(el); },
 
+    isInside(x, z) { return U.pointInPolygon(x, z, this.enclosure); },
+
+    nearGate(x, z) {
+      return !!this.gateMid &&
+        U.dist2D(x, z, this.gateMid.x, this.gateMid.z) < this.gateHalf + 0.6;
+    },
+
+    // Mag iets van (x0,z0) naar (x1,z1)? Het hek oversteken kan alleen
+    // via de poortopening — niet dwars door de touwen.
+    fenceAllows(x0, z0, x1, z1) {
+      if (this.isInside(x0, z0) === this.isInside(x1, z1)) return true;
+      return this.nearGate(x0, z0) || this.nearGate(x1, z1);
+    },
+
+    getCameraEl() {
+      if (!this.cameraEl) this.cameraEl = document.querySelector('[camera]');
+      return this.cameraEl;
+    },
+
     // Camerapositie in FARM-LOKALE coordinaten (zelfde ruimte als de dieren).
-    // Cruciaal: in GPS-modus staat de farm-wortel op Spherical Mercator
-    // wereldcoordinaten (enorme getallen); de dieren staan in lokale meters
-    // t.o.v. die wortel. Wereld- en lokale posities direct vergelijken gaat
-    // dus mis — daarom rekenen we de camera hier om naar de lokale ruimte.
+    // In GPS-modus staat de farm op Spherical Mercator-wereldcoordinaten;
+    // daarom altijd omrekenen naar de lokale ruimte (incl. schaal en draaiing).
+    // Let op: geeft een gedeelde vector terug — alleen uitlezen.
     getCameraGround() {
-      if (!this.cameraEl) {
-        this.cameraEl = document.querySelector('[camera]');
-      }
+      const c = this.getCameraEl();
       _pos.set(0, 0, 0);
-      if (this.cameraEl) this.cameraEl.object3D.getWorldPosition(_pos);
+      if (c) c.object3D.getWorldPosition(_pos);
       if (this.farmEl) this.farmEl.object3D.worldToLocal(_pos);
       return _pos;
     },
 
-    // Genormaliseerde kijkrichting van de camera in het XZ-vlak,
-    // eveneens omgerekend naar de farm-lokale ruimte (i.v.m. anchor.rotationDeg).
-    getCameraForward() {
+    // Volledige 3D-kijkrichting in farm-lokale ruimte (genormaliseerd).
+    getCameraDir3() {
+      const c = this.getCameraEl();
       _dir.set(0, 0, -1);
-      if (this.cameraEl) {
-        this.cameraEl.object3D.getWorldDirection(_dir);
-        _dir.multiplyScalar(-1); // getWorldDirection wijst naar achteren in three
+      if (c) {
+        c.object3D.getWorldDirection(_dir);
+        _dir.multiplyScalar(-1); // getWorldDirection van een entity wijst naar achteren
       }
       if (this.farmEl) {
         this.farmEl.object3D.getWorldQuaternion(_quat);
         _dir.applyQuaternion(_quat.invert());
       }
-      _dir.y = 0;
-      if (_dir.lengthSq() < 1e-6) return { x: 0, z: -1 };
-      _dir.normalize();
-      return { x: _dir.x, z: _dir.z };
+      return _dir.normalize();
+    },
+
+    // Kijkrichting plat op de grond (XZ), genormaliseerd.
+    getCameraForward() {
+      const d = this.getCameraDir3();
+      const l = Math.hypot(d.x, d.z);
+      if (l < 1e-6) return { x: 0, z: -1 };
+      return { x: d.x / l, z: d.z / l };
+    },
+
+    // Het punt op de grond waar je vizier naar wijst.
+    //   hit     = je kijkt naar beneden (er is een grondpunt)
+    //   clamped = dat punt lag verder dan maxDist en is ingekort langs je
+    //             kijklijn (nog steeds de goede richting, alleen dichterbij)
+    gazeGround(maxDist) {
+      const c = this.getCameraGround();
+      const cx = c.x, cy = c.y, cz = c.z;
+      const d = this.getCameraDir3();
+      let x, z, hit = false, clamped = false;
+      if (d.y < -0.03 && cy > 0) {
+        const t = cy / -d.y;
+        x = cx + d.x * t; z = cz + d.z * t; hit = true;
+      } else {
+        const f = this.getCameraForward();
+        x = cx + f.x * maxDist; z = cz + f.z * maxDist;
+      }
+      const h = U.dist2D(cx, cz, x, z);
+      if (h > maxDist) {
+        x = cx + (x - cx) * maxDist / h;
+        z = cz + (z - cz) * maxDist / h;
+        clamped = true;
+      }
+      return { x, z, hit, clamped };
+    },
+
+    // Richt het vizier op een punt (farm-lokaal)? radius = "trefzone".
+    // Werkt schaal-onafhankelijk: de toegestane hoek groeit als iets dichtbij is.
+    aimAt(px, py, pz, radius) {
+      const c = this.getCameraGround();
+      const vx = px - c.x, vy = py - c.y, vz = pz - c.z;
+      const d = Math.hypot(vx, vy, vz) || 1e-6;
+      const dir = this.getCameraDir3();
+      const dot = U.clamp((vx * dir.x + vy * dir.y + vz * dir.z) / d, -1, 1);
+      const ang = Math.acos(dot) * 180 / Math.PI;
+      const tol = Math.max(2.5, Math.atan(radius / d) * 180 / Math.PI * 1.3);
+      return { d: Math.hypot(vx, vz), ang, hit: ang <= tol };
     },
 
     notifyEscaped() {
@@ -185,9 +263,12 @@
     },
 
     buildFields() {
+      const sys = this.el.sceneEl.systems.farm;
       const cropColors = {
-        tato: '#5a6e2f', mutfruit: '#7a2f4a', corn: '#9a8a2f', default: '#4f6b35',
+        tato: '#5a6e2f', mutfruit: '#7a2f4a', mais: '#9a8a2f', corn: '#9a8a2f',
+        default: '#4f6b35',
       };
+      const now = performance.now() / 1000;
       for (const f of CFG.fields) {
         // Akkergrond
         const soil = document.createElement('a-entity');
@@ -197,11 +278,12 @@
         soil.setAttribute('position', `${f.x} 0.02 ${f.z}`);
         this.el.appendChild(soil);
 
-        // Gewasrijen (groene ribbels)
+        // Gewasrijen — hoogte en kleur worden per frame bijgewerkt (interact.js)
         const color = cropColors[f.crop] || cropColors.default;
-        const rows = f.rows || 5;
-        for (let r = 0; r < rows; r++) {
-          const rz = f.z - f.depth / 2 + (f.depth / rows) * (r + 0.5);
+        const nRows = f.rows || 5;
+        const rows = [];
+        for (let r = 0; r < nRows; r++) {
+          const rz = f.z - f.depth / 2 + (f.depth / nRows) * (r + 0.5);
           const row = document.createElement('a-box');
           row.setAttribute('width', f.width * 0.92);
           row.setAttribute('height', 0.25);
@@ -209,7 +291,15 @@
           row.setAttribute('position', `${f.x} 0.14 ${rz}`);
           row.setAttribute('material', `color: ${color}; roughness: 1`);
           this.el.appendChild(row);
+          rows.push(row);
         }
+
+        // Begin halfvol gegroeid, zodat er snel iets te oogsten is.
+        const grow = f.growSeconds || 90;
+        sys.fields.push({
+          cfg: f, rows, color, stage: -1, progress: 0,
+          plantedAt: now - grow * U.rand(0.4, 0.9),
+        });
       }
     },
 
@@ -226,6 +316,7 @@
             scale: def.scale || 1,
             model: def.model || '',
             canEscape: i < (def.escapes || 0),
+            product: def.product || '',
           });
           this.el.appendChild(el);
           sys.registerAnimal(el);
