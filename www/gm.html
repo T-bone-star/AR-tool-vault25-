@@ -51,6 +51,18 @@
     .rq.sent { opacity: 0.45; }
     .rq b { color: #ffd23c; font-weight: normal; }
     select.codein { padding: 8px; }
+    .pen { border: 1px solid var(--pip-dim); border-radius: 6px; padding: 8px 10px; margin-top: 8px; }
+    .pen.off { opacity: 0.55; border-style: dashed; }
+    .pen-head { display: flex; justify-content: space-between; align-items: center; gap: 8px; }
+    .pen-head b { color: #fff; font-weight: normal; letter-spacing: 1px; }
+    .pen .seg { margin-top: 6px; }
+    .pen .seg button { padding: 6px 4px; font-size: 0.75rem; }
+    .herd { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 6px; font-size: 0.85rem; }
+    .herd span { display: inline-flex; align-items: center; gap: 4px; }
+    .herd button, .pen-head button { font-family: inherit; background: transparent; color: var(--pip); border: 1px solid var(--pip-dim); border-radius: 3px; padding: 2px 8px; cursor: pointer; }
+    .herd i { font-style: normal; opacity: 0.6; font-size: 0.72rem; }
+    .pen-foot { display: flex; justify-content: space-between; align-items: center; margin-top: 6px; font-size: 0.75rem; opacity: 0.85; }
+    .pen-foot button { font-family: inherit; font-size: 0.75rem; padding: 4px 8px; background: transparent; color: #ff6b4a; border: 1px solid #ff6b4a; border-radius: 3px; cursor: pointer; }
     #gm-msg { min-height: 1.2em; font-size: 0.8rem; color: #ffd23c; }
     #search { padding: 8px; font-family: inherit; background: #03150b; color: #fff; border: 1px solid var(--pip-dim); border-radius: 4px; width: 100%; margin-bottom: 8px; }
   </style>
@@ -73,20 +85,12 @@
     <div class="grid">
       <div>
         <div class="card">
-          <h2>PADDOCK</h2>
-          <div class="seg" id="cond-seg">
-            <button class="c-goed" data-cond="goed">GOED</button>
-            <button class="c-beschadigd" data-cond="beschadigd">BESCHADIGD</button>
-            <button class="c-kapot" data-cond="kapot">KAPOT</button>
-          </div>
-          <p class="small" id="cond-info"></p>
-          <div class="row" style="margin-top:8px">
-            <select id="esc-type" class="codein small"></select>
-            <select id="esc-count" class="codein small" style="max-width:70px"><option>1</option><option>2</option><option>3</option></select>
-            <button class="btn small danger" id="btn-escape">UITBRAAK NU</button>
-          </div>
+          <h2>HOKKEN</h2>
+          <p class="small">Zet een hok aan zodra spelers het in-game gebouwd hebben. Dieren erbij na aankoop, eraf bij verkoop of slacht.</p>
           <div id="gm-msg"></div>
-          <div id="animals" style="margin-top:6px"></div>
+          <div id="pens"></div>
+          <h2 style="margin-top:12px">LOS</h2>
+          <div id="animals"></div>
         </div>
         <div class="card" style="margin-top:16px">
           <h2>WILDSTAND</h2>
@@ -184,23 +188,33 @@
           <td>${itemsTxt(p.inv)}</td>
         </tr>`).join('') || '<tr><td colspan="3" class="small">Nog geen spelers.</td></tr>';
 
-      const P = state.paddock, Wd = state.wild, Rd = state.radio;
-      if (P) {
-        document.querySelectorAll('#cond-seg button').forEach(b => b.classList.toggle('on', b.dataset.cond === P.condition));
-        const ev = P.escapeEveryMinutes[P.condition];
-        $('cond-info').textContent = ev ? `Vanzelf: gemiddeld één uitbraak per ${ev} min.` + (P.condition === 'kapot' ? ' Hek houdt niets tegen.' : '') : 'Geen uitbraken vanzelf — alleen als jij ze start.';
-        const sel = $('esc-type');
-        if (sel.options.length !== P.escapeTypes.length + 1) {
-          sel.innerHTML = '<option value="">willekeurig dier</option>' + P.escapeTypes.map(t => `<option value="${esc(t)}">${esc(t)}</option>`).join('');
-        }
-        const mins = (s) => s == null ? '' : `${Math.floor(s / 60)}:${String(s % 60).padStart(2, '0')}`;
-        const out = P.animals.filter(a => a.state !== 'GRAZE');
-        $('animals').innerHTML = out.length ? out.map(a => {
-          const st = { ESCAPE: 'breekt uit', WANDER_OUTSIDE: 'los', FOLLOW: 'wordt teruggeleid' }[a.state] || a.state;
-          const late = a.state === 'WANDER_OUTSIDE' && a.outFor >= 300;
-          return `<div class="animal out ${late ? 'late' : ''}">${esc(a.type)} — ${st}${a.followBy ? ' door ' + esc(a.followBy) : ''}${a.outFor != null && a.state === 'WANDER_OUTSIDE' ? ' · ' + mins(a.outFor) : ''}</div>`;
-        }).join('') : '<p class="small">Al het vee staat binnen.</p>';
+      const Wd = state.wild, Rd = state.radio;
+      const mins = (x) => x == null ? '' : `${Math.floor(x / 60)}:${String(x % 60).padStart(2, '0')}`;
+      const spl = (k) => (state.species[k] || {}).label || k;
+      if (state.pens) {
+        $('pens').innerHTML = state.pens.map(p => {
+          const total = Object.values(p.counts || {}).reduce((a, b) => a + b, 0);
+          const herd = p.species.map(sp => `<span>${esc(spl(sp))} <i>niv ${(state.species[sp] || {}).level || 1}</i>
+              <button data-rem="${esc(sp)}" data-pen="${esc(p.id)}" ${!(p.counts || {})[sp] ? 'disabled' : ''}>−</button>
+              <b>${(p.counts || {})[sp] || 0}</b>
+              <button data-add="${esc(sp)}" data-pen="${esc(p.id)}" ${!p.active || total >= p.capacity ? 'disabled' : ''}>+</button></span>`).join('');
+          const seg = ['goed', 'beschadigd', 'kapot'].map(c => `<button class="c-${c} ${p.cond === c ? 'on' : ''}" data-pcond="${c}" data-pen="${esc(p.id)}" ${p.active ? '' : 'disabled'}>${c.toUpperCase()}</button>`).join('');
+          return `<div class="pen ${p.active ? '' : 'off'}">
+            <div class="pen-head"><b>${esc(p.label)}</b>
+              <button data-penon="${p.active ? 0 : 1}" data-pen="${esc(p.id)}">${p.active ? 'GEBOUWD ✓' : 'NIET GEBOUWD'}</button></div>
+            ${p.active ? `<div class="seg">${seg}</div>` : ''}
+            <div class="herd">${herd}</div>
+            ${p.active ? `<div class="pen-foot"><span>${total}/${p.capacity} dieren · ${p.everyMin ? 'vanzelf ~1 uitbraak per ' + p.everyMin + ' min' : 'geen uitbraken vanzelf'}</span>
+              <button data-esc="${esc(p.id)}" ${total ? '' : 'disabled'}>UITBRAAK NU</button></div>` : ''}
+          </div>`;
+        }).join('');
       }
+      const out = state.animals || [];
+      $('animals').innerHTML = out.length ? out.map(a => {
+        const st = { ESCAPE: 'breekt uit', WANDER_OUTSIDE: 'los', FOLLOW: 'wordt teruggeleid' }[a.state] || a.state;
+        const late = a.state === 'WANDER_OUTSIDE' && a.outFor >= 300;
+        return `<div class="animal out ${late ? 'late' : ''}">${esc(spl(a.type))} (${esc(a.pen)}) — ${st}${a.followBy ? ' door ' + esc(a.followBy) : ''}${a.outFor != null && a.state === 'WANDER_OUTSIDE' ? ' · ' + mins(a.outFor) : ''}</div>`;
+      }).join('') : '<p class="small">Al het vee staat in zijn hok.</p>';
       if (Wd) {
         document.querySelectorAll('#mult-seg button').forEach(b => b.classList.toggle('on', Number(b.dataset.mult) === Wd.mult));
         $('wild-info').textContent = `Nu ${Wd.alive} beesten in de omgeving, maximaal ${Wd.max}.`;
@@ -220,13 +234,22 @@
       if (b.dataset.pay) gm('resolve', { code: b.dataset.pay, approve: true });
       if (b.dataset.back) gm('resolve', { code: b.dataset.back, approve: false });
       if (b.dataset.role) gm('role', { pid: b.dataset.pid, role: b.dataset.role, on: b.dataset.on === '1' });
-      if (b.dataset.cond) {
-        if (b.dataset.cond !== 'goed' && !confirm(`Paddock op ${b.dataset.cond.toUpperCase()} zetten? Spelers krijgen een melding${state && state.radio && state.radio.enabled ? ' en er komt een radiobericht' : ''}.`)) return;
-        gm('condition', { condition: b.dataset.cond });
+      if (b.dataset.pcond) {
+        const pen = (state.pens || []).find(p => p.id === b.dataset.pen) || {};
+        if (b.dataset.pcond !== 'goed' && !confirm(`${pen.label} op ${b.dataset.pcond.toUpperCase()} zetten? Spelers krijgen een melding${state && state.radio && state.radio.enabled ? ' en er komt een radiobericht' : ''}.`)) return;
+        gm('condition', { pen: b.dataset.pen, condition: b.dataset.pcond });
       }
+      if (b.dataset.penon) {
+        const pen = (state.pens || []).find(p => p.id === b.dataset.pen) || {};
+        const n = Object.values(pen.counts || {}).reduce((a, c) => a + c, 0);
+        if (b.dataset.penon === '0' && !confirm(`${pen.label} afbreken?${n ? ` De ${n} dieren erin verdwijnen.` : ''}`)) return;
+        gm('pen', { pen: b.dataset.pen, on: b.dataset.penon === '1' });
+      }
+      if (b.dataset.add) gm('add', { pen: b.dataset.pen, species: b.dataset.add });
+      if (b.dataset.rem) gm('remove', { pen: b.dataset.pen, species: b.dataset.rem });
+      if (b.dataset.esc) gm('escape', { pen: b.dataset.esc, count: 1 });
       if (b.dataset.mult != null) gm('wildmult', { value: Number(b.dataset.mult) });
     });
-    $('btn-escape').addEventListener('click', () => gm('escape', { type: $('esc-type').value, count: Number($('esc-count').value) }));
     $('btn-wildrestore').addEventListener('click', () => { if (confirm('Alle gebieden weer vol wild?')) gm('wildrestore'); });
     $('btn-radio').addEventListener('click', () => { const v = $('radio-text').value.trim(); if (v) { gm('radio', { text: v }); $('radio-text').value = ''; } });
     $('ti-search').addEventListener('input', render);

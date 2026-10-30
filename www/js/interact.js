@@ -58,16 +58,19 @@
       }
       if (best) return best;
 
-      // 2. Vee om te melken
+      // 2. Vee verzorgen (eieren, haar, mest …) — veeboer van minstens het niveau van het dier
       for (const [id, el] of farm.animals) {
         const n = el.__net, c = el.components['herd-animal'];
         if (!n || !n.m || !c) continue;
         const p = el.object3D.position;
         const a = farm.aimAt(p.x, c.aimHeight, p.z, c.radius);
         if (a.hit && a.d <= (B.actionRangeMeters || 22) && (!best || a.ang < best.ang)) {
-          const locked = !net.hasRole(R.milkRole);
-          best = { kind: 'melk', id, ang: a.ang, locked,
-            label: locked ? `Alleen ${net.roleLabel(R.milkRole).toLowerCase()}en kunnen melken` : `${c.data.type} melken` };
+          const lvl = (c.T && c.T.level) || 1;
+          const locked = !net.hasLevel(R.careGroup, lvl);
+          const what = n.m.map(k => net.label(k).toLowerCase()).join(', ');
+          const name = (c.T && c.T.label) || c.data.type;
+          best = { kind: 'verzorg', id, ang: a.ang, locked,
+            label: locked ? `${name}: Veeboer ${lvl}+ nodig` : `${name} verzorgen: ${what}` };
         }
       }
       if (best) return best;
@@ -82,7 +85,7 @@
         if (f.stage !== 2) return { kind: 'groei', id: 'g' + i + f.stage, label: `${name}: ${f.stage === 0 ? 'net opgekomen' : 'bijna rijp'}` };
         const locked = !net.hasRole(R.harvestRole);
         return { kind: 'oogst', id: i, locked,
-          label: locked ? `Alleen ${net.roleLabel(R.harvestRole).toLowerCase()}en kunnen oogsten` : `${name} oogsten` };
+          label: locked ? `Alleen een ${net.roleLabel(R.harvestRole).toLowerCase()} kan oogsten` : `${name} oogsten` };
       }
       return null;
     },
@@ -92,7 +95,7 @@
       if (a && a.kind === 'groei') { this.el.emit('action-info', { msg: 'Nog niet rijp — kom later terug.' }); return; }
       if (a && a.locked) { this.el.emit('action-info', { msg: a.label + '.' }); return; }
       if (a && a.kind === 'oogst') { net.send({ t: 'act', kind: 'harvest', target: a.id }); return; }
-      if (a && a.kind === 'melk') { net.send({ t: 'act', kind: 'milk', target: a.id }); return; }
+      if (a && a.kind === 'verzorg') { net.send({ t: 'act', kind: 'care', target: a.id }); return; }
       // Vuren (op wild of in het niets). Directe feedback; de server bepaalt raak/mis.
       const now = performance.now();
       if (now - this.lastShot < 700) return;

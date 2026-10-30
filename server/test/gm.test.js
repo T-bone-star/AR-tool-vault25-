@@ -45,22 +45,30 @@ const sleep = (ms) => new Promise(r => setTimeout(r, ms));
     $('pw').value = base.gmPassword; click($('go')); await sleep(1500);
     check('inloggen werkt', $('login').hidden && !$('app').hidden);
     check('rolcodes zichtbaar voor SL', $('codes').textContent.includes(base.roles.jager.code));
-    check('paddock staat op GOED', w.document.querySelector('#cond-seg button.on').dataset.cond === 'goed');
+    const q = (sel) => w.document.querySelector(sel);
+    check('5 hokken op het GM-scherm', w.document.querySelectorAll('#pens .pen').length === 5);
+    check('3 gebouwd, 2 niet', w.document.querySelectorAll('#pens .pen.off').length === 2);
     check('wildstand toont 4 gebieden', w.document.querySelectorAll('#sectors .sect').length === 4);
-    check('dierkeuze voor uitbraak gevuld', $('esc-type').options.length === 3, [...$('esc-type').options].map(o => o.value || '*').join(','));
 
-    // Uitbraak starten
-    $('esc-type').value = 'brahmin';
-    click($('btn-escape')); await sleep(400);
+    // Konijnenren bouwen en konijnen erbij zetten
+    click(q('button[data-penon="1"][data-pen="konijnen"]')); await sleep(1300);
+    check('konijnenren gebouwd', !q('button[data-penon="1"][data-pen="konijnen"]') && q('button[data-penon="0"][data-pen="konijnen"]'));
+    click(q('button[data-add="konijn"][data-pen="konijnen"]')); await sleep(300);
+    click(q('button[data-add="konijn"][data-pen="konijnen"]')); await sleep(1300);
+    const kon = [...w.document.querySelectorAll('#pens .pen')].find(e => /Konijnenren/.test(e.textContent));
+    check('2 konijnen in de ren', /2\/8 dieren/.test(kon.textContent), kon.textContent.replace(/\s+/g, ' ').slice(0, 120));
+
+    // Kippenhok kapot
+    click(q('button[data-pcond="kapot"][data-pen="kippen"]')); await sleep(1300);
+    check('kippenhok op KAPOT', q('button[data-pcond="kapot"][data-pen="kippen"]').classList.contains('on'));
+    check('paddock blijft GOED', q('button[data-pcond="goed"][data-pen="paddock"]').classList.contains('on'));
+    check('radiobericht noemt het kippenhok', /kippenhok/i.test($('radio-list').textContent));
+
+    // Uitbraak in de wei
+    click(q('button[data-esc="wei"]')); await sleep(400);
     check('melding na uitbraak-knop', /breekt uit/.test($('gm-msg').textContent), $('gm-msg').textContent);
-    await sleep(8000);
-    check('uitgebroken brahmin zichtbaar in de lijst', /brahmin — (breekt uit|los)/.test($('animals').textContent), $('animals').textContent);
-
-    // Paddock kapot
-    click(w.document.querySelector('#cond-seg button[data-cond="kapot"]')); await sleep(1300);
-    check('paddock op KAPOT', w.document.querySelector('#cond-seg button.on').dataset.cond === 'kapot');
-    check('uitleg toont uitbraakfrequentie', /per 3 min/.test($('cond-info').textContent), $('cond-info').textContent);
-    check('radiobericht in de lijst na "kapot"', /kapot|flarden/.test($('radio-list').textContent));
+    await sleep(6000);
+    check('uitgebroken schaap/geit zichtbaar bij LOS', /(Schaap|Geit) \(Schapen- en geitenwei\)/.test($('animals').textContent), $('animals').textContent);
 
     // Wildstand x2
     click(w.document.querySelector('#mult-seg button[data-mult="2"]')); await sleep(1300);

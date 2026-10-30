@@ -131,6 +131,12 @@
     },
 
     hasRole(role) { return !role || !!(this.me && this.me.roles.includes(role)); },
+    // Rol uit een groep van minstens dit niveau (Veeboer 2 mag ook niveau-1-vee)
+    hasLevel(group, level) {
+      if (!group) return true;
+      if (!this.me || !this.layout) return false;
+      return this.me.roles.some(r => { const d = this.layout.roles[r]; return d && d.group === group && (d.level || 1) >= level; });
+    },
     label(item) { return (this.layout && this.layout.items[item] && this.layout.items[item].label) || item; },
     roleLabel(role) { return (this.layout && this.layout.roles[role] && this.layout.roles[role].label) || role; },
   };

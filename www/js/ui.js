@@ -142,13 +142,18 @@
     $('stat-outside').textContent = e.detail.outside;
     $('stat-returned').textContent = e.detail.returned;
     const c = $('cond');
-    if (c) { c.textContent = { beschadigd: 'HEK BESCHADIGD', kapot: 'HEK KAPOT' }[e.detail.cond] || ''; c.className = 'cond-' + (e.detail.cond || 'goed'); }
+    if (c) {
+      const bad = e.detail.bad || [];
+      const worst = bad.some(b => b.cond === 'kapot') ? 'kapot' : bad.length ? 'beschadigd' : 'goed';
+      c.textContent = bad.map(b => `${b.label.toUpperCase()} ${b.cond.toUpperCase()}`).join(' · ');
+      c.className = 'cond-' + worst;
+    }
   });
   on('shot-local', () => { sfxShot(); flash(); });
   on('action-info', (e) => { sfxBad(); toast(e.detail.msg, 2200); });
 
   const ACTION = {
-    jacht: { text: 'VUUR', cls: 'k-jacht' }, melk: { text: 'MELK', cls: 'k-melk' },
+    jacht: { text: 'VUUR', cls: 'k-jacht' }, verzorg: { text: 'ZORG', cls: 'k-melk' },
     oogst: { text: 'OOGST', cls: 'k-oogst' }, groei: { text: '…', cls: 'k-groei' },
   };
   on('aim-change', (e) => {

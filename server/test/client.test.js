@@ -17,6 +17,7 @@ base.fields.forEach(f => { f.growSeconds = 2; });
 base.wildlife.firstSpawnSeconds = 0.5;
 base.wildlife.types.forEach(t => { t.hitChance = 1; t.skittishRange = 0; t.speed = 0.01; });
 base.behavior.maxShotRange = 1e6;
+base.species.kip.products = { ei: 0.01, veren: 0.01 };   // in de test meteen klaar
 const CFGFILE = path.join(os.tmpdir(), `v25c-cfg-${process.pid}.json`);
 fs.writeFileSync(CFGFILE, JSON.stringify(base));
 
@@ -141,7 +142,9 @@ function makeBrowser(playerId, name, codes) {
     piet.lookAt(0, 0, 0); kees.lookAt(0, 0, 0);
     await Promise.all([piet.run(1500), kees.run(1500)]);
     check('hek + akkers gebouwd uit server-layout', piet.sys.fields.length === base.fields.length);
-    check('vee getekend uit snapshots', piet.sys.animals.size === 7, `(${piet.sys.animals.size})`);
+    const herd = base.pens.filter(p => p.active).reduce((n, p) => n + Object.values(p.start || {}).reduce((a, b) => a + b, 0), 0);
+    check('vee getekend uit snapshots', piet.sys.animals.size === herd, `(${piet.sys.animals.size} van ${herd})`);
+    check('gebouwde hokken zichtbaar, niet-gebouwde verborgen', piet.farm.components['farm-builder'].penGroups.paddock.el.object3D.visible && !piet.farm.components['farm-builder'].penGroups.hertenkamp.el.object3D.visible);
     check('andere speler zichtbaar als figuur', piet.sys.avatars.size === 1 && kees.sys.avatars.size === 1);
     const av = [...piet.sys.avatars.values()][0];
     check('figuur staat op de plek van de ander', Math.abs(av.object3D.position.x - 3) < 0.6, av.object3D.position.x.toFixed(2));
@@ -153,7 +156,7 @@ function makeBrowser(playerId, name, codes) {
     kees.lookAt(f0.cfg.x, 0, f0.cfg.z); await kees.run(200);
     check('niet-boer ziet slot op de knop', kees.inter.aim && kees.inter.aim.kind === 'oogst' && kees.inter.aim.locked);
     kees.inter.doAction(); await kees.run(300);
-    check('niet-boer drukt: niets verstuurd, uitleg getoond', !(kees.net.me.inv[f0.cfg.crop]) && /Alleen boeren/.test((kees.last('action-info') || {}).detail?.msg || ''));
+    check('niet-boer drukt: niets verstuurd, uitleg getoond', !(kees.net.me.inv[f0.cfg.crop]) && /kan oogsten/.test((kees.last('action-info') || {}).detail?.msg || ''));
     piet.lookAt(f0.cfg.x, 0, f0.cfg.z); await piet.run(200);
     check('boer ziet OOGST', piet.inter.aim && piet.inter.aim.kind === 'oogst' && !piet.inter.aim.locked);
     piet.inter.doAction(); await Promise.all([piet.run(500), kees.run(500)]);
@@ -183,16 +186,38 @@ function makeBrowser(playerId, name, codes) {
     gmws.send(JSON.stringify({ t: 'gm-auth', pw: base.gmPassword }));
     await sleep(200);
     const fbc = piet.farm.components['farm-builder'];
-    const total = fbc.ropes.length;
-    const visible = () => fbc.ropes.filter(r => r.object3D.visible).length;
+    const segs = fbc.penGroups.paddock.segs;
+    const total = segs.length;
+    const visible = () => segs.filter(r => r.object3D.visible).length;
     check('hek heel bij start', visible() === total, `${visible()}/${total}`);
-    gmws.send(JSON.stringify({ t: 'gm', op: 'condition', condition: 'kapot' }));
+    gmws.send(JSON.stringify({ t: 'gm', op: 'condition', pen: 'paddock', condition: 'kapot' }));
     await piet.run(500);
     check('GM "kapot" -> hek op de telefoon vol gaten', visible() < total * 0.5 && visible() > 0, `${visible()}/${total}`);
-    check('speler krijgt melding over het hek', piet.all('net-event').some(e => e.detail.kind === 'paddock' && /kapot/.test(e.detail.text)));
-    gmws.send(JSON.stringify({ t: 'gm', op: 'condition', condition: 'goed' }));
+    check('speler krijgt melding over het hek', piet.all('net-event').some(e => e.detail.kind === 'paddock' && /brahmin-paddock is kapot/i.test(e.detail.text)));
+    gmws.send(JSON.stringify({ t: 'gm', op: 'condition', pen: 'paddock', condition: 'goed' }));
     await piet.run(500);
     check('GM "goed" -> hek weer heel', visible() === total);
+    // Hok bouwen via GM: konijnenren verschijnt op de telefoon
+    gmws.send(JSON.stringify({ t: 'gm', op: 'pen', pen: 'konijnen', on: true }));
+    gmws.send(JSON.stringify({ t: 'gm', op: 'add', pen: 'konijnen', species: 'konijn' }));
+    await piet.run(500);
+    check('GM bouwt konijnenren -> zichtbaar met konijn', fbc.penGroups.konijnen.el.object3D.visible && [...piet.sys.animals.values()].some(e => e.__net.type === 'konijn'));
+
+    // Verzorgen: kip in het kippenhok
+    const kipEl = [...piet.sys.animals.values()].find(e => e.__net.type === 'kip' && e.__net.m);
+    check('kip met klaarliggende eieren', !!kipEl, kipEl ? JSON.stringify(kipEl.__net.m) : '');
+    if (kipEl) {
+      const kp = kipEl.object3D.position, kc = kipEl.components['herd-animal'];
+      piet.setCam(kp.x, 1.6, kp.z + 3); piet.lookAt(kp.x, kc.aimHeight, kp.z);
+      await piet.run(250);
+      check('zonder veeboer-rol: slot op ZORG', piet.inter.aim && piet.inter.aim.kind === 'verzorg' && piet.inter.aim.locked && /Veeboer 1\+/.test(piet.inter.aim.label), piet.inter.aim && piet.inter.aim.label);
+      gmws.send(JSON.stringify({ t: 'gm', op: 'role', pid: 'c-piet', role: 'vee1', on: true }));
+      await piet.run(400);
+      piet.inter.key = ''; await piet.run(200);
+      check('met Veeboer 1: ZORG zonder slot', piet.inter.aim && piet.inter.aim.kind === 'verzorg' && !piet.inter.aim.locked, piet.inter.aim && piet.inter.aim.label);
+      piet.inter.doAction(); await piet.run(500);
+      check('eieren in de tas', (piet.net.me.inv.ei || 0) >= 1, JSON.stringify(piet.net.me.inv));
+    }
     gmws.close();
 
     // Inleveren via de telefoon

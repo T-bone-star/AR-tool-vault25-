@@ -116,7 +116,7 @@
 
       // Hek laten zien zoals de server zegt: goed / beschadigd / kapot
       const fb = this.farmEl.components && this.farmEl.components['farm-builder'];
-      if (fb && fb.setCondition && s.st) fb.setCondition(s.st.cond);
+      if (fb && fb.setPens && s.pens) fb.setPens(s.pens);
 
       // Volgt er een dier mij? (vizier amber)
       const mine = s.a.filter(a => a.f === net.id).length;
@@ -124,7 +124,7 @@
         this.followCount = mine;
         document.dispatchEvent(new CustomEvent('follow-count', { detail: mine }));
       }
-      if (s.st && (s.st.outside !== this.stats.outside || s.st.returned !== this.stats.returned || s.st.cond !== this.stats.cond)) {
+      if (s.st && (s.st.outside !== this.stats.outside || s.st.returned !== this.stats.returned || JSON.stringify(s.st.bad) !== JSON.stringify(this.stats.bad))) {
         this.stats = s.st;
         document.dispatchEvent(new CustomEvent('farm-stats', { detail: s.st }));
       }
@@ -160,75 +160,157 @@
       sys.layout = net.layout;
       this.L = net.layout;
       this.buildGround();
-      this.buildFence();
+      this.buildPens();
       this.buildFields(sys);
       setTimeout(() => this.el.sceneEl.emit('farm-ready'), 0);
     },
 
-    setCondition(cond) {
-      if (!cond || cond === this.cond || !this.ropes) return;
-      this.cond = cond;
-      const gone = cond === 'kapot' ? 0.66 : cond === 'beschadigd' ? 0.25 : 0;
-      for (const r of this.ropes) r.object3D.visible = r.__break >= gone;
+    // Per hok: zichtbaar als het gebouwd is, gaten in het hek bij schade
+    setPens(list) {
+      if (!this.penGroups) return;
+      for (const st of list || []) {
+        const g = this.penGroups[st.id];
+        if (!g) continue;
+        const on = !!st.on;
+        if (g.on !== on) { g.on = on; g.el.object3D.visible = on; }
+        if (g.cond !== st.cond) {
+          g.cond = st.cond;
+          const gone = st.cond === 'kapot' ? 0.66 : st.cond === 'beschadigd' ? 0.25 : 0;
+          for (const seg of g.segs) seg.object3D.visible = seg.__break >= gone;
+        }
+      }
     },
 
     buildGround() {
       const g = document.createElement('a-entity');
-      g.setAttribute('geometry', 'primitive: circle; radius: 40');
+      g.setAttribute('geometry', 'primitive: circle; radius: 45');
       g.setAttribute('rotation', '-90 0 0');
       g.setAttribute('material', 'color: #2a2418; opacity: 0.18; transparent: true; side: double');
       g.setAttribute('position', '0 0.01 0');
       this.el.appendChild(g);
     },
 
-    buildFence() {
-      const E = this.L.enclosure, pts = E.points, h = E.postHeight || 1.1, sp = E.postSpacing || 2, gate = E.gate;
-      for (let i = 0; i < pts.length; i++) {
-        const a = pts[i], b = pts[(i + 1) % pts.length];
-        const isGate = gate && gate.sideIndex === i;
-        const len = U.dist2D(a.x, a.z, b.x, b.z);
-        const n = Math.max(1, Math.round(len / sp));
+    // Hektypes: hoogte paal, afstand tussen palen, en wat er tussen de palen hangt
+    buildPens() {
+      this.penGroups = {};
+      for (const pen of this.L.pens || []) {
+        const el = document.createElement('a-entity');
+        el.object3D.visible = false;           // pas zichtbaar als de server zegt dat het gebouwd is
+        this.el.appendChild(el);
+        const g = { el, segs: [], on: false, cond: null, pen };
+        this.penGroups[pen.id] = g;
+        this.buildPenFence(pen, g);
+        if (pen.coop) this.buildCoop(pen, el);
+        if (pen.pond) this.buildPond(pen, el);
+        if (pen.hutch) this.buildHutch(pen, el);
+      }
+    },
+
+    buildPenFence(pen, g) {
+      const STY = {
+        touw: { h: 1.1, sp: 2.0, post: '#6b4f2e', r: 0.05 },
+        hek:  { h: 1.0, sp: 2.0, post: '#5e4428', r: 0.06 },
+        gaas: { h: 1.2, sp: 1.5, post: '#7a6a55', r: 0.04 },
+        ren:  { h: 0.6, sp: 1.0, post: '#7a6a55', r: 0.03 },
+        hoog: { h: 2.2, sp: 2.5, post: '#4f3c24', r: 0.06 },
+      }[pen.style] || { h: 1.1, sp: 2, post: '#6b4f2e', r: 0.05 };
+      const x0 = pen.x - pen.width / 2, x1 = pen.x + pen.width / 2, z0 = pen.z - pen.depth / 2, z1 = pen.z + pen.depth / 2;
+      const sides = { noord: [[x0, z0], [x1, z0]], oost: [[x1, z0], [x1, z1]], zuid: [[x1, z1], [x0, z1]], west: [[x0, z1], [x0, z0]] };
+      for (const [side, [[ax, az], [bx, bz]]] of Object.entries(sides)) {
+        const len = Math.hypot(bx - ax, bz - az);
+        const n = Math.max(1, Math.round(len / STY.sp));
+        const gw = side === pen.gate ? (pen.gateWidth || 2) / len : 0;
+        const skip = (t0, t1) => gw && t1 > 0.5 - gw / 2 && t0 < 0.5 + gw / 2;
         for (let s = 1; s <= n; s++) {
           const t = s / n;
-          if (isGate) { const gw = gate.widthMeters / len; if (t > 0.5 - gw / 2 && t < 0.5 + gw / 2) continue; }
-          this.post(a.x + (b.x - a.x) * t, a.z + (b.z - a.z) * t, h);
+          if (gw && t > 0.5 - gw / 2 && t < 0.5 + gw / 2) continue;
+          this.post(g.el, ax + (bx - ax) * t, az + (bz - az) * t, STY.h, STY.r, STY.post);
         }
-        // Touw per stuk tussen twee paaltjes, zodat een beschadigd hek zichtbaar gaten krijgt
+        if (gw) {   // poortpalen
+          for (const t of [0.5 - gw / 2, 0.5 + gw / 2]) this.post(g.el, ax + (bx - ax) * t, az + (bz - az) * t, STY.h + 0.1, STY.r * 1.4, STY.post);
+        }
         for (let s = 0; s < n; s++) {
           const t0 = s / n, t1 = (s + 1) / n;
-          if (isGate) { const gw = gate.widthMeters / len; if (t1 > 0.5 - gw / 2 && t0 < 0.5 + gw / 2) continue; }
-          const p0 = { x: a.x + (b.x - a.x) * t0, z: a.z + (b.z - a.z) * t0 };
-          const p1 = { x: a.x + (b.x - a.x) * t1, z: a.z + (b.z - a.z) * t1 };
-          for (const y of [h * 0.9, h * 0.5]) this.rope(p0, p1, y, 0);
+          // Stukken links en rechts van de poortopening laten staan
+          const pieces = !skip(t0, t1) ? [[t0, t1]]
+            : [[t0, Math.min(t1, 0.5 - gw / 2)], [Math.max(t0, 0.5 + gw / 2), t1]].filter(([u, v]) => v - u > 0.02);
+          for (const [u, v] of pieces) {
+            const p0 = { x: ax + (bx - ax) * u, z: az + (bz - az) * u }, p1 = { x: ax + (bx - ax) * v, z: az + (bz - az) * v };
+            g.segs.push(this.span(g.el, pen.style, p0, p1, STY.h, g.segs.length));
+          }
         }
       }
     },
-    post(x, z, h) {
+
+    post(parent, x, z, h, r, color) {
       const p = document.createElement('a-cylinder');
-      p.setAttribute('radius', 0.05); p.setAttribute('height', h);
+      p.setAttribute('radius', r); p.setAttribute('height', h);
       p.setAttribute('position', `${x} ${h / 2} ${z}`);
-      p.setAttribute('material', 'color: #6b4f2e; roughness: 1');
-      this.el.appendChild(p);
+      p.setAttribute('material', `color: ${color}; roughness: 1`);
+      parent.appendChild(p);
     },
-    rope(a, b, y, gap) {
-      const make = (x1, z1, x2, z2) => {
-        const r = document.createElement('a-cylinder');
-        r.setAttribute('radius', 0.015);
-        r.setAttribute('height', U.dist2D(x1, z1, x2, z2));
-        r.setAttribute('material', 'color: #b8a06a; roughness: 1');
-        r.setAttribute('position', `${(x1 + x2) / 2} ${y} ${(z1 + z2) / 2}`);
-        r.setAttribute('rotation', `90 ${THREE.MathUtils.radToDeg(Math.atan2(x2 - x1, z2 - z1))} 0`);
-        this.el.appendChild(r);
-        // Vaste "breekvolgorde": bij beschadigd valt ~1 op 4 weg, bij kapot ~2 op 3
-        r.__break = ((this.ropes = this.ropes || []).length * 0.618034) % 1;
-        this.ropes.push(r);
+
+    // Eén stuk hek tussen twee palen, als groep (zodat het in z'n geheel kan "breken")
+    span(parent, style, a, b, h, idx) {
+      const seg = document.createElement('a-entity');
+      parent.appendChild(seg);
+      const len = Math.hypot(b.x - a.x, b.z - a.z);
+      const mx = (a.x + b.x) / 2, mz = (a.z + b.z) / 2;
+      const yaw = THREE.MathUtils.radToDeg(Math.atan2(b.z - a.z, b.x - a.x));
+      const bar = (y, thick, color, height = thick) => {
+        const e = document.createElement('a-box');
+        e.setAttribute('width', len); e.setAttribute('height', height); e.setAttribute('depth', thick);
+        e.setAttribute('position', `${mx} ${y} ${mz}`);
+        e.setAttribute('rotation', `0 ${-yaw} 0`);
+        e.setAttribute('material', `color: ${color}; roughness: 1`);
+        seg.appendChild(e);
       };
-      if (!gap) { make(a.x, a.z, b.x, b.z); return; }
-      const len = U.dist2D(a.x, a.z, b.x, b.z), gw = gap / len;
-      const lerp = (t) => ({ x: a.x + (b.x - a.x) * t, z: a.z + (b.z - a.z) * t });
-      const g1 = lerp(0.5 - gw / 2), g2 = lerp(0.5 + gw / 2);
-      make(a.x, a.z, g1.x, g1.z);
-      make(g2.x, g2.z, b.x, b.z);
+      const mesh = (hh, color) => {
+        const e = document.createElement('a-plane');
+        e.setAttribute('width', len); e.setAttribute('height', hh);
+        e.setAttribute('position', `${mx} ${hh / 2} ${mz}`);
+        e.setAttribute('rotation', `0 ${-yaw} 0`);
+        e.setAttribute('material', `color: ${color}; opacity: 0.28; transparent: true; side: double`);
+        seg.appendChild(e);
+      };
+      if (style === 'hek') { for (const y of [0.3, 0.6, 0.9]) bar(y, 0.04, '#8a6a42', 0.1); }
+      else if (style === 'gaas') { mesh(h, '#c9d0d0'); bar(h, 0.03, '#7a6a55'); }
+      else if (style === 'ren') { mesh(h, '#c9d0d0'); bar(h, 0.03, '#7a6a55'); }
+      else if (style === 'hoog') { for (const y of [0.4, 0.9, 1.4, 1.9]) bar(y, 0.015, '#a8a8a0'); }
+      else { for (const y of [h * 0.9, h * 0.5]) bar(y, 0.03, '#b8a06a'); }    // touw
+      seg.__break = (idx * 0.618034) % 1;   // vaste breekvolgorde
+      return seg;
+    },
+
+    // Kippenhok-huisje in de hoek, met loopplank
+    buildCoop(pen, parent) {
+      const x = pen.x - pen.width / 2 + 1.0, z = pen.z - pen.depth / 2 + 0.9;
+      const add = (tag, attrs) => { const e = document.createElement(tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent.appendChild(e); return e; };
+      add('a-box', { width: 1.6, height: 1.0, depth: 1.2, position: `${x} 0.75 ${z}`, material: 'color: #8a5a3a; roughness: 1' });
+      add('a-box', { width: 1.8, height: 0.08, depth: 1.4, position: `${x} 1.32 ${z}`, rotation: '0 0 8', material: 'color: #5a3a28; roughness: 1' });
+      for (const [dx, dz] of [[-0.7, -0.5], [0.7, -0.5], [-0.7, 0.5], [0.7, 0.5]]) add('a-cylinder', { radius: 0.04, height: 0.25, position: `${x + dx} 0.12 ${z + dz}`, material: 'color: #4a3020' });
+      add('a-box', { width: 0.22, height: 0.3, depth: 0.04, position: `${x + 0.3} 0.6 ${z + 0.61}`, material: 'color: #1a120a' });
+      add('a-box', { width: 0.24, height: 0.04, depth: 0.7, position: `${x + 0.3} 0.22 ${z + 0.9}`, rotation: '-35 0 0', material: 'color: #8a6a42' });
+    },
+
+    // Vijvertje voor de eenden
+    buildPond(pen, parent) {
+      const e = document.createElement('a-circle');
+      e.setAttribute('radius', Math.min(pen.width, pen.depth) * 0.22);
+      e.setAttribute('rotation', '-90 0 0');
+      e.setAttribute('position', `${pen.x + pen.width * 0.22} 0.03 ${pen.z + pen.depth * 0.12}`);
+      e.setAttribute('material', 'color: #3a6f8f; opacity: 0.8; transparent: true; roughness: 0.3');
+      parent.appendChild(e);
+    },
+
+    // Konijnenhok op pootjes
+    buildHutch(pen, parent) {
+      const x = pen.x + pen.width / 2 - 0.9, z = pen.z;
+      const add = (tag, attrs) => { const e = document.createElement(tag); for (const k in attrs) e.setAttribute(k, attrs[k]); parent.appendChild(e); return e; };
+      add('a-box', { width: 1.2, height: 0.6, depth: 0.8, position: `${x} 0.7 ${z}`, material: 'color: #9a7048; roughness: 1' });
+      add('a-box', { width: 1.3, height: 0.06, depth: 0.95, position: `${x} 1.03 ${z}`, material: 'color: #5a3a28' });
+      add('a-plane', { width: 0.5, height: 0.4, position: `${x - 0.2} 0.7 ${z + 0.41}`, material: 'color: #c9d0d0; opacity: 0.35; transparent: true; side: double' });
+      for (const [dx, dz] of [[-0.5, -0.3], [0.5, -0.3], [-0.5, 0.3], [0.5, 0.3]]) add('a-cylinder', { radius: 0.03, height: 0.4, position: `${x + dx} 0.2 ${z + dz}`, material: 'color: #4a3020' });
     },
 
     buildFields(sys) {
@@ -279,10 +361,12 @@
   AFRAME.registerComponent('herd-animal', {
     schema: { type: { type: 'string', default: 'brahmin' } },
     init() {
-      const T = (net.layout.animalTypes || {})[this.data.type] || {};
+      const T = (net.layout.species || {})[this.data.type] || {};
+      this.T = T;
       this.scale = T.scale || 1;
-      this.aimHeight = 0.9 * this.scale;
-      this.radius = 0.8 * this.scale;
+      const sz = (V25.models.sizes || {})[this.data.type] || [0.9, 0.8];
+      this.aimHeight = sz[0] * this.scale;
+      this.radius = sz[1] * this.scale;
       if (T.model) {
         const m = document.createElement('a-entity');
         m.setAttribute('gltf-model', T.model);

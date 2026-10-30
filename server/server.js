@@ -144,9 +144,17 @@ wss.on('connection', (ws) => {
         if (m.op === 'role') world.gmSetRole(String(m.pid), String(m.role), !!m.on);
         if (m.op === 'reset') world.gmResetWorld();
         if (m.op === 'say' && m.text) world.event('gm', String(m.text).slice(0, 140));
-        if (m.op === 'condition') world.gmSetCondition(String(m.condition));
+        if (m.op === 'condition') {
+          if (m.pen) world.gmSetCondition(String(m.pen), String(m.condition));
+          else world.gmSetCondition(String(m.condition));
+        }
+        if (m.op === 'pen') world.gmSetPenActive(String(m.pen), !!m.on);
+        if (m.op === 'add') {
+          if (!world.gmAddAnimal(String(m.pen), String(m.species))) send(c, { t: 'gm-msg', text: 'Kan niet: hok niet gebouwd, vol, of deze soort hoort er niet.' });
+        }
+        if (m.op === 'remove') world.gmRemoveAnimal(String(m.pen), String(m.species));
         if (m.op === 'escape') {
-          const n = world.triggerEscape(String(m.type || ''), Math.max(1, Math.min(5, Number(m.count) || 1)), true);
+          const n = world.triggerEscape(String(m.type || ''), Math.max(1, Math.min(5, Number(m.count) || 1)), true, String(m.pen || ''));
           send(c, { t: 'gm-msg', text: n ? `${n} ${n > 1 ? 'dieren breken' : 'dier breekt'} uit.` : 'Geen dier beschikbaar om uit te breken (allemaal al buiten?).' });
         }
         if (m.op === 'wildmult') world.gmSetWildMult(m.value);

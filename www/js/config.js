@@ -16,7 +16,8 @@ window.VAULT25_CONFIG = {
   // Testmodi — zie README. schaal = hoe groot de paddock getekend wordt.
   modes: {
     sim:     { scale: 1,   viewDistance: 14 },
-    kamer:   { scale: 0.2, viewDistance: 14, cameraHeight: 1.4 },
+    // 0.12: alle hokken samen (~47 m breed) passen zo in een woonkamer (~5,5 m)
+    kamer:   { scale: 0.12, viewDistance: 14, cameraHeight: 1.4 },
     hier:    { scale: 1,   viewDistance: 14 },
     terrein: { scale: 1 },
   },

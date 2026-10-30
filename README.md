@@ -69,18 +69,41 @@ npx cap open android`.
 |---|---|---|
 | Schieten op wild | iedereen | raak = beest dood; alleen een **jager** krijgt vlees/huid |
 | Oogsten | alleen **boer** | eerste boer krijgt de oogst; akker begint opnieuw |
-| Melken | alleen **boer** | 1 melk per brahmin per rustperiode |
+| Vee verzorgen | **veeboer** van minstens het niveau van het dier | eieren, veren, haar, mest of botten; eerste wint |
 | Vee terugleiden | iedereen | door de **poortopening**; 5 kroonkurken voor wie leidde |
 | Inleveren | iedereen | tas → code → SL keurt goed op het GM-scherm |
 
 Andere spelers zien je als figuurtje (rood = jager, geel = boer, groen = geen
 rol), horen je schoten en lezen in de nieuwsregel wat je doet.
 
+## Vee en hokken
+
+Alle negen veesoorten uit barter 2.0 / het resourceoverzicht, met hun niveau.
+Wat ze opleveren komt uit de component lore Dierlijk, zodat de handelspost met
+de gewone resourcekaartjes kan uitbetalen.
+
+| Hok | Hektype | Dieren (niveau) | Levert | Standaard |
+|---|---|---|---|---|
+| Brahmin-paddock | touw | brahmin (3), koe (2) | mest, haar | gebouwd |
+| Schapen- en geitenwei | houten hek | schaap (2), geit (2) | haar, mest | gebouwd |
+| Kippenhok | kippengaas + hok + vijver | kip (1), eend (1) | ei(eren), veren | gebouwd |
+| Konijnenren | laag gaas + konijnenhok | konijn (1) | mest, haar | niet gebouwd |
+| Hertenkamp | hoog wildraster | ree (3), hert (3) | mest, botten | niet gebouwd |
+
+Verzorgen volgt de skill *Boer vee niveau 1–3*: rolcodes `HOK-1`, `HOK-2`,
+`HOK-3` (veranderen in `server/config.js`). Veeboer 2 mag ook niveau-1-vee.
+Op het GM-scherm zet je een hok op **GEBOUWD** zodra spelers het in-game
+neerzetten, en zet je er dieren in of uit (na aankoop, verkoop of slacht).
+Elk hok heeft een eigen poort; een dier kan alleen terug in z'n eigen hok.
+Soorten, producten, hokken en maten: `species` en `pens` in `server/config.js`.
+
+![Plattegrond](docs/plattegrond.png)
+
 ## Uitbraken en de staat van het hek
 
-Dieren breken niet meer op een vaste klok uit. Op het GM-scherm zet je de
-paddock op **goed**, **beschadigd** of **kapot** (bv. als de paddock die spelers
-bouwden is aangevallen):
+Dieren breken niet op een vaste klok uit. Op het GM-scherm zet je **elk hok
+apart** op **goed**, **beschadigd** of **kapot** (bv. als het kippenhok dat
+spelers bouwden is aangevallen):
 
 | Staat | Vanzelf uitbreken | Hek |
 |---|---|---|
@@ -88,10 +111,10 @@ bouwden is aangevallen):
 | beschadigd | gemiddeld 1× per 12 min | alleen door de poortopening |
 | kapot | gemiddeld 1× per 3 min | houdt niets tegen: overal in en uit |
 
-Spelers zien de schade (touwen weg) en krijgen een melding. Met **UITBRAAK NU**
-start je zelf een uitbraak (dier en aantal kiezen). Nooit meer dan 3 dieren
-tegelijk buiten; een teruggebracht dier blijft even rustig. Alles instelbaar in
-`paddock` in `server/config.js`.
+Spelers zien de schade (stukken hek weg) en krijgen een melding met de naam
+van het hok. Met **UITBRAAK NU** per hok start je zelf een uitbraak. Nooit meer
+dan 3 dieren tegelijk buiten (alle hokken samen); een teruggebracht dier blijft
+even rustig. Instelbaar in `paddock` in `server/config.js`.
 
 ## Wildstand
 

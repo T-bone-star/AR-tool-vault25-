@@ -80,21 +80,42 @@ look('p-jan', -4, -16, c.x + 10, 0, c.z - 10);   // kijkt ernaast
 w.t += 1; w.act('p-jan', 'shoot', c.id);
 check('vals richten (target sturen zonder te kijken) = mis', c.state !== 'DEAD');
 
-// ---------- melken: alleen boer, één keer per rustperiode
-const b = w.animals.find(a => a.product === 'melk');
-b.state = 'GRAZE'; b.x = 0; b.z = 0; b.pauseUntil = w.t + 999;
-look('p-kees', 0, 4, 0, 0.9, 0);
-w.act('p-kees', 'milk', b.id);
-check('geen boer kan niet melken', /Alleen een boer/.test(lastMsg('p-kees')));
+// ---------- verzorgen: veeboer van het juiste niveau, één keer per product-interval
+const kip = w.animals.find(a => a.type === 'kip');
+const kh = w.penById.kippen;
+kip.state = 'GRAZE'; kip.x = kh.x; kip.z = kh.z; kip.pauseUntil = w.t + 999; kip.target = null;
+Object.keys(kip.lastCollected).forEach(k => { kip.lastCollected[k] = -1e9; });
+look('p-piet', kh.x, kh.z + 4, kh.x, 0.3, kh.z);
+w.act('p-piet', 'care', kip.id);
+check('boer (gewassen) kan geen vee verzorgen', /Veeboer niveau 1/.test(lastMsg('p-piet')));
+w.redeem('p-piet', 'HOK-1');
+w.redeem('p-anna', 'hok-3');
+check('veeboer-codes geven niveau', w.hasLevel(piet, 'veeboer', 1) && !w.hasLevel(piet, 'veeboer', 2) && w.hasLevel(anna, 'veeboer', 3));
+look('p-anna', kh.x + 1, kh.z + 4, kh.x, 0.3, kh.z);
+w.act('p-piet', 'care', kip.id);     // tegelijk ...
+w.act('p-anna', 'care', kip.id);     // ... maar Piet was eerst
+check('veeboer 1 verzorgt kip: eieren + veren', piet.inv.ei === 1 && piet.inv.veren === 1, JSON.stringify(piet.inv));
+check('tweede verzorger te laat', !anna.inv.ei && /net verzorgd/.test(lastMsg('p-anna')));
+check('verzorgen zichtbaar voor iedereen', events('care').some(e => /Piet verzorgde een kip/.test(e.msg.text)));
+const brah = w.animals.find(a => a.type === 'brahmin');
+brah.state = 'GRAZE'; brah.x = 0; brah.z = 0; brah.pauseUntil = w.t + 999;
+Object.keys(brah.lastCollected).forEach(k => { brah.lastCollected[k] = -1e9; });
 look('p-piet', 0, 4, 0, 0.9, 0);
-look('p-anna', 2, 4, 0, 0.9, 0);
-w.act('p-piet', 'milk', b.id);
-w.act('p-anna', 'milk', b.id);
-check('één boer melkt, ander te laat', piet.inv.melk === 1 && !anna.inv.melk && /net gemolken/.test(lastMsg('p-anna')));
+w.act('p-piet', 'care', brah.id);
+check('veeboer 1 mag geen brahmin (niveau 3)', /niveau 3/.test(lastMsg('p-piet')) && !piet.inv.mest);
+look('p-anna', 0, 4, 0, 0.9, 0);
+w.act('p-anna', 'care', brah.id);
+check('veeboer 3 verzorgt brahmin: mest + haar', anna.inv.mest === 1 && anna.inv.haar === 1, JSON.stringify(anna.inv));
+const sch = w.animals.find(a => a.type === 'schaap');
+sch.state = 'GRAZE'; sch.x = w.penById.wei.x; sch.z = w.penById.wei.z; sch.pauseUntil = w.t + 999;
+Object.keys(sch.lastCollected).forEach(k => { sch.lastCollected[k] = -1e9; });
+look('p-anna', sch.x, sch.z + 4, sch.x, 0.9, sch.z);
+w.act('p-anna', 'care', sch.id);
+check('veeboer 3 mag ook lager vee (schaap, niv. 2)', anna.inv.haar === 2);
 
 // ---------- vee terugbrengen: iedereen, slechts één leider
-w.animals.forEach(a => { a.state = 'GRAZE'; a.x = 0; a.z = 0; a.target = null; a.pauseUntil = w.t + 999; });
-const esc = w.animals.find(a => a.type === 'radstag');
+w.animals.filter(a => a.pen === 'paddock').forEach(a => { a.state = 'GRAZE'; a.x = 0; a.z = 0; a.target = null; a.pauseUntil = w.t + 999; });
+const esc = w.animals.find(a => a.type === 'brahmin');
 esc.state = 'WANDER_OUTSIDE'; esc.x = 3; esc.z = -12; esc.target = { x: 3, z: -12 };
 // Iedereen behalve Kees kijkt weg (omhoog)
 for (const id of ['p-jan', 'p-piet', 'p-anna']) look(id, 30, 30, 30, 50, 30.1);
@@ -114,13 +135,11 @@ for (let i = 0; i < 600 && esc.state === 'FOLLOW'; i++) {
 }
 check('vee terug binnen via de poort', esc.state === 'GRAZE' && w.isInside(esc.x, esc.z), `${esc.state} ${esc.x.toFixed(1)},${esc.z.toFixed(1)}`);
 check('teruggeleider krijgt beloning (geen rol nodig)', kees.inv.kroonkurken === 5, JSON.stringify(kees.inv));
-check('terugbrengen zichtbaar voor iedereen', events('return').some(e => /Kees bracht een radstag/.test(e.msg.text)));
-w.condition = 'beschadigd';
-const otherStags = w.animals.filter(a => a.type === 'radstag' && a !== esc);
-otherStags.forEach(a => { a.canEscape = false; });
-check('teruggebracht dier breekt niet direct weer uit', esc.immuneUntil > w.t + 60 && w.triggerEscape('radstag', 1, false) === 0);
-otherStags.forEach(a => { a.canEscape = true; });
-w.condition = 'goed';
+check('terugbrengen zichtbaar voor iedereen', events('return').some(e => /Kees bracht een brahmin terug in de brahmin-paddock/.test(e.msg.text)));
+const otherB = w.animals.filter(a => a.type === 'brahmin' && a !== esc);
+otherB.forEach(a => { a.canEscape = false; });
+check('teruggebracht dier breekt niet direct weer uit', esc.immuneUntil > w.t + 60 && w.triggerEscape('brahmin', 1, false) === 0);
+otherB.forEach(a => { a.canEscape = true; });
 
 // Speler gaat offline tijdens lokken -> dier wordt losgelaten
 esc.state = 'WANDER_OUTSIDE'; esc.x = 3; esc.z = -12; esc.followBy = null;
@@ -135,7 +154,7 @@ check('lokker offline -> dier los', esc.state === 'WANDER_OUTSIDE' && !esc.follo
   ww.join('x', 'X'); // niemand posed: geen lokken
   run2(30 * 60);
   check('paddock goed: geen vanzelf-uitbraken in 30 min', ww.animals.every(a => a.state === 'GRAZE'), ww.animals.map(a => a.state).join(''));
-  check('molerats kunnen niet uitbreken', ww.animals.filter(a => a.type === 'molerat').every(a => !a.canEscape));
+  check('niet-gebouwde hokken hebben geen dieren', !ww.animals.some(a => a.pen === 'konijnen' || a.pen === 'hertenkamp'));
 
   check('GM-uitbraak: brahmin', ww.triggerEscape('brahmin', 1, true) === 1);
   run2(60);
@@ -160,13 +179,100 @@ check('lokker offline -> dier los', esc.state === 'WANDER_OUTSIDE' && !esc.follo
   const ww4 = new World(cfg, {}, () => {});
   ww4.join('k', 'K');
   ww4.gmSetCondition('kapot');
-  const a4 = ww4.animals.find(a => a.type === 'radstag');
+  const a4 = ww4.animals.find(a => a.type === 'brahmin');
   ww4.animals.forEach(a => { a.pauseUntil = 1e9; });
   a4.state = 'WANDER_OUTSIDE'; a4.x = 12; a4.z = 0; a4.outSince = 0; a4.target = { x: 12, z: 0 };
   ww4.setPose('k', { x: 16, y: 1.6, z: 0, dx: -4, dy: -0.8, dz: 0 });
   for (let i = 0; i < 400 && a4.state !== 'GRAZE'; i++) { ww4.setPose('k', { x: 16, y: 1.6, z: 0, dx: -12, dy: -1.6, dz: 0 }); ww4.tick(0.05); }
   check('kapot hek: dier dwars door de touwen terug te leiden', a4.state === 'GRAZE', `${a4.state} ${a4.x.toFixed(1)}`);
-  check('paddockstaat in snapshot voor de telefoon', ww4.snapshot().st.cond === 'kapot');
+  check('hokstaat in snapshot voor de telefoon', ww4.snapshot().st.bad.some(b => b.cond === 'kapot') && ww4.snapshot().pens.find(p => p.id === 'paddock').cond === 'kapot');
+}
+
+// ---------- hokken
+{
+  const ww = new World(cfg, {}, () => {});
+  const run2 = (s2, dt = 0.1) => { for (let t = 0; t < s2; t += dt) ww.tick(dt); };
+  check('5 hokken, 3 gebouwd bij de start', ww.pens.length === 5 && ww.activePens().length === 3);
+  check('alle 9 veesoorten uit de projectgegevens', ['konijn','kip','eend','geit','schaap','koe','brahmin','ree','hert'].every(s => cfg.species[s]));
+  check('GM kan geen dier in een niet-gebouwd hok zetten', ww.gmAddAnimal('konijnen', 'konijn') === null);
+  ww.gmSetPenActive('konijnen', true);
+  for (let i = 0; i < 9; i++) ww.gmAddAnimal('konijnen', 'konijn');
+  check('hok gebouwd + konijnen erbij, tot de capaciteit (8)', ww.animals.filter(a => a.pen === 'konijnen').length === 8);
+  check('verkeerde soort in een hok kan niet', ww.gmAddAnimal('konijnen', 'kip') === null);
+  check('nieuwe dieren staan in hun hok', ww.animals.filter(a => a.pen === 'konijnen').every(a => ww.inPen(ww.penById.konijnen, a.x, a.z)));
+  ww.gmRemoveAnimal('konijnen', 'konijn');
+  check('GM haalt een dier weg', ww.animals.filter(a => a.pen === 'konijnen').length === 7);
+  ww.gmSetPenActive('konijnen', false);
+  check('hok afbreken haalt de dieren weg', !ww.animals.some(a => a.pen === 'konijnen'));
+
+  // Per hok een eigen staat: kippenhok kapot, paddock blijft heel
+  ww.gmSetCondition('kippen', 'kapot');
+  ww.join('x', 'X');
+  let paddockOut = 0, kipOut = 0;
+  for (let t = 0; t < 20 * 60; t += 0.5) {
+    ww.tick(0.5);
+    paddockOut = Math.max(paddockOut, ww.animals.filter(a => a.pen === 'paddock' && a.state !== 'GRAZE').length);
+    kipOut = Math.max(kipOut, ww.animals.filter(a => a.pen === 'kippen' && a.state !== 'GRAZE').length);
+  }
+  check('kapot kippenhok: alleen kippen/eenden breken uit', kipOut > 0 && paddockOut === 0, `(kip ${kipOut}, paddock ${paddockOut})`);
+  check('alleen het kapotte hok in de snapshot als probleem', JSON.stringify(ww.snapshot().st.bad) === JSON.stringify([{ label: 'Kippenhok', cond: 'kapot' }]));
+
+  // Uitbraak via de poort van het eigen hok (oost bij het kippenhok)
+  const w5 = new World(cfg, {}, () => {});
+  w5.triggerEscape('kip', 1, true, 'kippen');
+  const k5 = w5.animals.find(a => a.type === 'kip' && a.state === 'ESCAPE');
+  let crossed = false;
+  for (let i = 0; i < 2000 && k5.state === 'ESCAPE'; i++) {
+    const was = w5.inPen(w5.penById.kippen, k5.x, k5.z);
+    w5.tick(0.05);
+    if (was && !w5.inPen(w5.penById.kippen, k5.x, k5.z) && !w5.nearGate(w5.penById.kippen, k5.x, k5.z)) crossed = true;
+  }
+  check('kip ontsnapt via de poort van het kippenhok', k5.state === 'WANDER_OUTSIDE' && !crossed && k5.x > w5.penById.kippen.x1 - 1, `${k5.state} x=${k5.x.toFixed(1)}`);
+  check('melding noemt het hok', w5.feed.some(e => /kip is uitgebroken bij het kippenhok/.test(e.text)));
+
+  // Loslopend dier loopt niet door de hekken van andere hokken
+  let intoOther = 0;
+  for (let i = 0; i < 6000; i++) {
+    w5.tick(0.1);
+    const o = w5.penAt(k5.x, k5.z);
+    if (o && o.id !== 'kippen') intoOther++;
+    if (k5.state !== 'WANDER_OUTSIDE') { k5.state = 'WANDER_OUTSIDE'; k5.target = null; }
+  }
+  check('loslopende kip komt nooit in een ander hok', intoOther === 0);
+
+  // Terugleiden: verkeerd hok telt niet, eigen hok wel
+  const w6 = new World(cfg, {}, () => {});
+  w6.join('g', 'G');
+  const k6 = w6.animals.find(a => a.type === 'kip');
+  w6.animals.forEach(a => { if (a !== k6) a.pauseUntil = 1e9; });
+  const gate = w6.penById.kippen.gateMid;   // oostkant kippenhok (x -11.5, z 13)
+  k6.state = 'WANDER_OUTSIDE'; k6.x = gate.x + 3; k6.z = gate.z; k6.outSince = 0; k6.target = { x: k6.x, z: k6.z };
+  const lookG = (tx, tz) => w6.setPose('g', { x: gate.x + 9, y: 1.6, z: gate.z, dx: tx - (gate.x + 9), dy: -1.6, dz: tz - gate.z });
+  lookG(k6.x, k6.z); w6.tick(0.1);
+  check('kip laat zich lokken', k6.state === 'FOLLOW');
+  for (let i = 0; i < 1500 && k6.state === 'FOLLOW'; i++) {
+    lookG(Math.abs(k6.z - gate.z) > 0.3 && k6.x > gate.x + 0.5 ? gate.x + 1.5 : gate.x - 2, gate.z);
+    w6.tick(0.05);
+  }
+  check('kip terug in het kippenhok via de poort', k6.state === 'GRAZE' && w6.inPen(w6.penById.kippen, k6.x, k6.z), `${k6.state} ${k6.x.toFixed(1)},${k6.z.toFixed(1)}`);
+
+  // Opslaan en herladen: hokken, staat en kudde blijven
+  const w7 = new World(cfg, {}, () => {});
+  w7.gmSetPenActive('hertenkamp', true);
+  w7.gmAddAnimal('hertenkamp', 'hert');
+  w7.gmSetCondition('wei', 'beschadigd');
+  const sv = JSON.parse(JSON.stringify(w7.toJSON()));
+  const w8 = new World(cfg, sv, () => {});
+  check('na herstart: hertenkamp gebouwd met 1 hert', w8.penById.hertenkamp.active && w8.animals.filter(a => a.pen === 'hertenkamp' && a.type === 'hert').length === 1);
+  check('na herstart: staat per hok behouden', w8.penById.wei.cond === 'beschadigd' && w8.penById.paddock.cond === 'goed');
+  check('na herstart: zelfde aantal dieren', w8.animals.length === w7.animals.length);
+  // Hert levert botten (veeboer 3)
+  w8.join('h', 'H', ['HOK-3']);
+  const hert = w8.animals.find(a => a.type === 'hert');
+  hert.pauseUntil = 1e9; Object.keys(hert.lastCollected).forEach(k => { hert.lastCollected[k] = -1e9; });
+  w8.setPose('h', { x: hert.x, y: 1.6, z: hert.z + 4, dx: 0, dy: -0.7, dz: -4 });
+  w8.act('h', 'care', hert.id);
+  check('hert verzorgen levert mest + botten', w8.players.get('h').inv.botten === 1 && w8.players.get('h').inv.mest === 1);
 }
 
 // ---------- wildstand per gebied
@@ -259,13 +365,13 @@ check('lokker offline -> dier los', esc.state === 'WANDER_OUTSIDE' && !esc.follo
   // Paddock kapot -> direct bericht; GM eigen bericht
   const wk = new World(cfg, {}, () => {}, { clock });
   wk.gmSetCondition('kapot');
-  check('paddock kapot -> radiobericht', wk.radioQueue.some(b => b.kind === 'paddock'));
+  check('paddock kapot -> radiobericht', wk.radioQueue.some(b => b.kind === 'pen-paddock' && /brahmin-paddock/.test(b.text)));
   wk.gmRadio('Test van de spelleiding');
   check('GM kan zelf een radiobericht sturen', wk.radioQueue.some(b => b.text === 'Test van de spelleiding'));
   // Opslaan
   const saved2 = JSON.parse(JSON.stringify(wk.toJSON()));
   const wk2 = new World(cfg, saved2, () => {}, { clock });
-  check('na herstart: paddockstaat, wildstand en radio behouden', wk2.condition === 'kapot' && wk2.radioQueue.length === wk.radioQueue.length && wk2.sectors.length === 4);
+  check('na herstart: paddockstaat, wildstand en radio behouden', wk2.penById.paddock.cond === 'kapot' && wk2.radioQueue.length === wk.radioQueue.length && wk2.sectors.length === 4);
 }
 
 // ---------- inleveren + GM
@@ -290,13 +396,13 @@ check('GM kan rol geven', kees.roles.has('jager'));
 const saved = JSON.parse(JSON.stringify(w.toJSON()));
 const w2 = new World(cfg, saved, () => {});
 const piet2 = w2.join('p-piet', 'Piet');
-check('na herstart: rol en tas behouden', piet2.roles.has('boer') && piet2.inv.melk === 1, JSON.stringify(piet2.inv));
+check('na herstart: rol en tas behouden', piet2.roles.has('boer') && piet2.roles.has('vee1') && piet2.inv.ei === 1, JSON.stringify(piet2.inv));
 
 // ---------- snapshot en layout bevatten geen geheimen
 const lay = JSON.stringify(w.layout());
 check('layout lekt geen rolcodes of GM-wachtwoord', !lay.includes('SPOOR') && !lay.includes('ZAAD') && !lay.includes(cfg.gmPassword));
 const snap = w.snapshot();
-check('snapshot heeft vee, wild, akkers', snap.a.length === 7 && Array.isArray(snap.c) && snap.f.length === 3);
+check('snapshot heeft vee, wild, akkers', snap.a.length === cfg.pens.filter(p => p.active).reduce((n, p) => n + Object.values(p.start || {}).reduce((a, b) => a + b, 0), 0) && Array.isArray(snap.c) && snap.f.length === 3, `(${snap.a.length})`);
 
 // ---------- duurtest: 10 minuten wereld met 4 spelers, geen crashes, geen wild in het hek
 for (const id of ['p-jan', 'p-piet', 'p-anna']) look(id, 0, 14, 0, 0, 0);
