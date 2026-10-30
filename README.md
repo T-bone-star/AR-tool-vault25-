@@ -35,7 +35,7 @@ Of los starten om te proberen: `cd server && npm install && npm start`.
 sudo systemctl restart vault25-paddock   # na een wijziging in config.js
 journalctl -u vault25-paddock -f         # meekijken: adressen, spelers
 ```
-**Verander eerst** in `server/config.js`: `gmPassword` en de `roles`-codes.
+**Eigen codes** (niet in `config.js`, want de repo is openbaar): `cp server/config.local.voorbeeld.js server/config.local.js`, daarin `gmPassword` en de rolcodes invullen, service herstarten. Dat bestand gaat nooit naar GitHub en `git pull` laat het met rust.
 
 Thuis testen zonder telefoon: open `http://localhost:8090` → SIMULATIE.
 

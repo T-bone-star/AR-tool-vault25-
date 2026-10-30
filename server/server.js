@@ -16,6 +16,20 @@ const { WebSocketServer } = require('ws');
 const { World } = require('./sim');
 const cfg = require(process.env.V25_CONFIG || './config');
 
+// Geheime codes/wachtwoord los van GitHub: server/config.local.js (staat in
+// .gitignore) overschrijft wat in config.js staat. Zie config.local.voorbeeld.js
+const LOCAL = path.join(__dirname, 'config.local.js');
+function merge(dst, src) {
+  for (const [k, v] of Object.entries(src || {})) {
+    if (v && typeof v === 'object' && !Array.isArray(v) && dst[k] && typeof dst[k] === 'object') merge(dst[k], v);
+    else dst[k] = v;
+  }
+}
+if (!process.env.V25_CONFIG && fs.existsSync(LOCAL)) {
+  merge(cfg, require(LOCAL));
+  console.log('  (eigen codes geladen uit config.local.js)');
+}
+
 const WWW = path.join(__dirname, '..', 'www');
 const DATA = process.env.V25_DATA || path.join(__dirname, 'data');
 const SAVE = path.join(DATA, 'save.json');
@@ -200,7 +214,7 @@ server.listen(PORT, () => {
     console.log(`  Bunkerradio:    http://${ip}:${PORT}/radio/next`);
   }
   console.log(`  Lokaal testen:  http://localhost:${PORT}/  (simulatie)\n`);
-  if (cfg.gmPassword === 'verander-mij') console.log('  ⚠ Verander gmPassword en de rolcodes in server/config.js!\n');
+  if (cfg.gmPassword === 'verander-mij') console.log('  ⚠ Nog de standaardcodes! Kopieer config.local.voorbeeld.js naar config.local.js en vul je eigen codes in.\n');
 });
 
 process.on('SIGINT', () => { save(); process.exit(0); });
