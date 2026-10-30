@@ -27,7 +27,9 @@ jobs:
 
   apk:
     needs: test
-    runs-on: ubuntu-latest
+    # Vast op 24.04: daar staat de Android SDK al klaar (ubuntu-latest
+    # schuift sinds oktober 2026 door naar 26.04)
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
 
@@ -35,12 +37,15 @@ jobs:
         with:
           node-version: 22
 
-      - uses: actions/setup-java@v4
+      - id: java
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: 21
 
-      - uses: android-actions/setup-android@v3
+      - id: sdk
+        uses: android-actions/setup-android@v3
+        continue-on-error: true   # de SDK staat al op de runner; dit is extra
 
       - name: Android SDK 36 installeren
         run: |
@@ -67,7 +72,7 @@ jobs:
         if: failure()
         run: |
           f="$RUNNER_TEMP/build.log"
-          [ -f "$f" ] || { echo "::error::Mislukt vóór de bouwstappen (checkout/Node/Java/SDK)."; exit 0; }
+          [ -f "$f" ] || { echo "::error::Mislukt vóór de bouwstappen. java=${{ steps.java.outcome }} sdk=${{ steps.sdk.outcome }} ANDROID_HOME=$ANDROID_HOME"; exit 0; }
           wrong=$(grep -A 12 -E "What went wrong|npm ERR|error:|ERROR" "$f" | head -40)
           tailtxt=$(tail -40 "$f")
           enc() { python3 -c 'import sys;print(sys.stdin.read().replace("%","%25").replace("\r","").replace("\n","%0A"))'; }
