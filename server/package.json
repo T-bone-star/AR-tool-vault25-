@@ -1,0 +1,20 @@
+{
+  "name": "vault25-paddock-server",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Server voor de Vault 25 Brahmin Paddock (draait op de GM-laptop)",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "test": "node test/sim.test.js && node test/net.test.js && node test/client.test.js"
+  },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "devDependencies": {
+    "three": "^0.164.1"
+  }
+}

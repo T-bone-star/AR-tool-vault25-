@@ -1,0 +1,90 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>Vault 25 — Brahmin Paddock</title>
+  <link rel="stylesheet" href="css/style.css" />
+</head>
+<body class="scroll">
+  <div class="start">
+    <h1>VAULT 25</h1>
+    <h2>BRAHMIN PADDOCK</h2>
+    <p>Hoed het vee, oogst de akkers en jaag op wat er rond de paddock scharrelt.
+       Alles wat je doet, zien de andere bewoners ook.</p>
+
+    <form id="join" class="form">
+      <label>Je naam (in-game)
+        <input id="name" maxlength="24" required autocomplete="off" placeholder="bv. Jan van der Stoep" />
+      </label>
+      <label>Rolcode <small>(optioneel — krijg je van een SL)</small>
+        <input id="codes" autocomplete="off" autocapitalize="characters" spellcheck="false" placeholder="bv. jagers- of boerencode" />
+      </label>
+      <details id="srv-box">
+        <summary>Server: <span id="srv-show"></span> <span id="srv-state" class="srvstate"></span></summary>
+        <label>Serveradres (de GM-laptop)
+          <input id="server" autocomplete="off" spellcheck="false" placeholder="192.168.1.10:8080" />
+        </label>
+        <button type="button" class="btn small ghost" id="test">VERBINDING TESTEN</button>
+      </details>
+
+      <button type="submit" class="btn mode main" data-mode="terrein">START<small>op het terrein (GPS)</small></button>
+      <h3>Andere modi</h3>
+      <div class="modes">
+        <button type="submit" class="btn mode" data-mode="hier">HIER<small>GPS · paddock waar jij nu staat</small></button>
+        <button type="submit" class="btn mode" data-mode="kamer">KAMER-AR<small>camera, geen GPS · verkleind voor je neus</small></button>
+        <button type="submit" class="btn mode" data-mode="sim">SIMULATIE<small>geen camera of GPS · slepen en WASD</small></button>
+      </div>
+    </form>
+
+    <ul>
+      <li>🎯 Richt het vizier en druk op de grote knop.</li>
+      <li>🏹 Iedereen kan schieten, maar alleen <b>jagers</b> krijgen buit.</li>
+      <li>🌾 Alleen <b>boeren</b> kunnen oogsten en melken.</li>
+      <li>🐄 Iedereen kan uitgebroken vee terugleiden — door de opening in het hek.</li>
+    </ul>
+    <p class="foot">Geen verbinding? Check of je op de wifi van het event zit.</p>
+  </div>
+
+  <script src="js/config.js"></script>
+  <script src="js/net.js"></script>
+  <script>
+    const net = V25.net, S = net.store;
+    const $ = (id) => document.getElementById(id);
+    $('name').value = S.get('v25-name');
+    $('server').value = net.defaultServer();
+    const showSrv = () => { $('srv-show').textContent = $('server').value || '(niet ingesteld)'; };
+    showSrv();
+    $('server').addEventListener('input', showSrv);
+
+    async function test() {
+      const st = $('srv-state');
+      st.textContent = '…'; st.className = 'srvstate';
+      try {
+        const ctl = new AbortController();
+        setTimeout(() => ctl.abort(), 3000);
+        const r = await fetch(`http://${$('server').value.trim()}/ping`, { signal: ctl.signal });
+        const j = await r.json();
+        st.textContent = `✓ verbonden (${j.players} online)`; st.className = 'srvstate ok';
+        return true;
+      } catch (e) {
+        st.textContent = '✗ niet bereikbaar'; st.className = 'srvstate bad';
+        $('srv-box').open = true;
+        return false;
+      }
+    }
+    $('test').addEventListener('click', test);
+    test();
+
+    let chosen = 'terrein';
+    document.querySelectorAll('button[data-mode]').forEach(b => b.addEventListener('click', () => { chosen = b.dataset.mode; }));
+    $('join').addEventListener('submit', (e) => {
+      e.preventDefault();
+      S.set('v25-name', $('name').value.trim());
+      S.set('v25-server', $('server').value.trim());
+      if ($('codes').value.trim()) S.set('v25-codes', $('codes').value.trim());
+      location.href = 'ar.html?mode=' + chosen;
+    });
+  </script>
+</body>
+</html>

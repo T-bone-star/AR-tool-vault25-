@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Vault 25 Paddock</string>
+    <string name="title_activity_main">Vault 25 Paddock</string>
+    <string name="package_name">nl.vault25.paddock</string>
+    <string name="custom_url_scheme">nl.vault25.paddock</string>
+</resources>

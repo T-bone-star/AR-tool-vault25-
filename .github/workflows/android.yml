@@ -1,0 +1,66 @@
+# Bouwt bij elke push automatisch de Android-app (APK) en draait de tests.
+# APK downloaden: GitHub → Actions → laatste run → "Artifacts" → vault25-paddock-apk.
+# Een tag als v2.0.1 pushen zet de APK ook onder Releases (handig om op een
+# telefoon direct te downloaden).
+name: Android APK
+
+on:
+  push:
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Server- en spelregeltests
+        working-directory: server
+        run: |
+          npm ci
+          npm test
+
+  apk:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: 21
+
+      - uses: android-actions/setup-android@v3
+
+      - name: Web-app naar het Android-project kopiëren
+        run: |
+          npm ci
+          npx cap sync android
+
+      - name: APK bouwen
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+          cp app/build/outputs/apk/release/app-release.apk ../vault25-paddock.apk
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: vault25-paddock-apk
+          path: vault25-paddock.apk
+
+      - name: Release (alleen bij een tag v*)
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: vault25-paddock.apk

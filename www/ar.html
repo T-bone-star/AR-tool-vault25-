@@ -1,0 +1,71 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
+  <title>Vault 25 — AR Paddock</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <!-- Lokaal meegeleverd, zodat alles werkt zonder internet.
+       A-Frame 1.6.0 hoort bij AR.js 3.4.7 — nooit los upgraden. -->
+  <script src="vendor/aframe.min.js"></script>
+  <script src="vendor/ar-threex-location-only.js"></script>
+  <script src="vendor/aframe-ar.js"></script>
+</head>
+<body>
+
+  <div id="hud">
+    <span class="tag"><span id="conn" class="conn connecting"></span> <span id="theme-label">VAULT 25</span></span>
+    <span class="tag">Buiten <b id="stat-outside">0</b> · Terug <b id="stat-returned">0</b> · Tas <b id="stat-inv">0</b></span>
+  </div>
+  <div id="roles"></div>
+  <div id="feed"></div>
+  <div id="reticle"></div>
+  <div id="aim-info"></div>
+  <div id="flash"></div>
+  <div id="loot"></div>
+  <div id="toast"></div>
+  <div id="gpsstatus" hidden></div>
+  <div id="offline" hidden>Verbinding met de server kwijt — opnieuw verbinden…</div>
+
+  <button id="btn-recenter" class="hudbtn" hidden>⟲ ZET VOOR MIJ</button>
+  <button id="btn-bag" class="hudbtn">🎒 TAS</button>
+  <button id="btn-action" class="actionbtn k-none"><span id="action-label">VUUR</span></button>
+
+  <div id="bag" class="panel" hidden>
+    <h3>TAS</h3>
+    <ul id="bag-list"></ul>
+    <button class="btn small" id="btn-turnin">INLEVEREN</button>
+    <div id="turnin-box" hidden>
+      <p class="small">Jouw inlevercode:</p>
+      <div id="turnin-code"></div>
+      <p id="turnin-help"></p>
+    </div>
+    <h4>Rolcode invoeren</h4>
+    <p id="bag-roles" class="small"></p>
+    <div class="row">
+      <input id="code-in" class="codein small" placeholder="code van een SL" autocomplete="off" autocapitalize="characters" spellcheck="false" />
+      <button class="btn small" id="btn-code">OK</button>
+    </div>
+    <button class="btn small ghost" id="btn-bag-close">SLUIT</button>
+  </div>
+
+  <div id="tapstart" hidden>
+    <button class="btn" id="tapstart-btn">TIK OM TE STARTEN</button>
+    <p id="tapstart-info"></p>
+  </div>
+
+  <div id="loader">
+    <div class="spin"></div>
+    <span class="loader-text" id="loader-text">Verbinden met de paddock…</span>
+  </div>
+
+  <script src="js/utils.js"></script>
+  <script src="js/config.js"></script>
+  <script src="js/net.js"></script>
+  <script src="js/models.js"></script>
+  <script src="js/world.js"></script>
+  <script src="js/interact.js"></script>
+  <script src="js/ui.js"></script>
+  <script src="js/bootstrap.js"></script>
+</body>
+</html>

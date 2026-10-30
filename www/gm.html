@@ -1,0 +1,147 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Vault 25 — GM-scherm Paddock</title>
+  <link rel="stylesheet" href="css/style.css" />
+  <style>
+    body.gm { overflow: auto; height: auto; }
+    .gmwrap { max-width: 1100px; margin: 0 auto; padding: 16px; }
+    .gmhead { display: flex; justify-content: space-between; align-items: center; gap: 12px; flex-wrap: wrap; }
+    .gmhead h1 { margin: 0; font-size: 1.3rem; letter-spacing: 3px; }
+    .grid { display: grid; grid-template-columns: 1fr; gap: 16px; margin-top: 16px; }
+    @media (min-width: 900px) { .grid { grid-template-columns: 3fr 2fr; } }
+    .card { border: 1px solid var(--pip-dim); border-radius: 6px; padding: 12px; background: rgba(3,21,11,0.6); }
+    .card h2 { margin: 0 0 10px; font-size: 0.95rem; letter-spacing: 2px; }
+    table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+    th, td { text-align: left; padding: 6px 4px; border-bottom: 1px dashed var(--pip-dim); vertical-align: top; }
+    th { font-weight: normal; opacity: 0.7; }
+    .off { opacity: 0.45; }
+    .tog { font-family: inherit; font-size: 0.72rem; padding: 3px 6px; margin: 1px; background: transparent; border: 1px solid var(--pip-dim); color: var(--pip-dim); border-radius: 3px; cursor: pointer; }
+    .tog.on.jager { color: #ff6b4a; border-color: #ff6b4a; }
+    .tog.on.boer { color: #ffd23c; border-color: #ffd23c; }
+    .ti-code { font-size: 1.15rem; font-weight: bold; color: #fff; letter-spacing: 2px; }
+    .ti-open { border-left: 3px solid #ffd23c; }
+    .ti-paid { opacity: 0.5; }
+    .ti-returned { opacity: 0.5; text-decoration: line-through; }
+    .btn.tiny { padding: 6px 10px; font-size: 0.8rem; margin: 4px 4px 0 0; }
+    .feedrow { font-size: 0.8rem; padding: 3px 0; border-bottom: 1px dotted rgba(60,255,142,0.15); }
+    .feedrow i { opacity: 0.5; font-style: normal; margin-right: 6px; }
+    .codes { font-size: 0.85rem; }
+    .codes b { color: #fff; }
+    #login { max-width: 360px; margin: 18vh auto; text-align: center; }
+    #search { padding: 8px; font-family: inherit; background: #03150b; color: #fff; border: 1px solid var(--pip-dim); border-radius: 4px; width: 100%; margin-bottom: 8px; }
+  </style>
+</head>
+<body class="gm">
+  <div id="login">
+    <h1>GM-SCHERM</h1>
+    <p>Brahmin Paddock — alleen voor SL's</p>
+    <input id="pw" type="password" class="codein" placeholder="GM-wachtwoord" />
+    <button class="btn" id="go">INLOGGEN</button>
+    <p id="login-msg" class="bad"></p>
+  </div>
+
+  <div class="gmwrap" id="app" hidden>
+    <div class="gmhead">
+      <h1><span id="conn" class="conn connecting"></span> PADDOCK — GM</h1>
+      <div class="codes" id="codes"></div>
+    </div>
+
+    <div class="grid">
+      <div>
+        <div class="card">
+          <h2>INLEVERINGEN — OPEN</h2>
+          <input id="ti-search" class="codein small" placeholder="zoek code of naam" autocapitalize="characters" />
+          <div id="ti-open"></div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <h2>SPELERS</h2>
+          <input id="search" placeholder="zoek speler" />
+          <table><thead><tr><th>Naam</th><th>Rollen</th><th>Tas</th></tr></thead><tbody id="players"></tbody></table>
+        </div>
+      </div>
+      <div>
+        <div class="card">
+          <h2>NIEUWS (WAT IEDEREEN ZIET)</h2>
+          <div class="row"><input id="say" class="codein small" placeholder="Omroepbericht aan alle spelers" /><button class="btn small" id="btn-say">ZEND</button></div>
+          <div id="feed-list" style="margin-top:8px"></div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <h2>AFGEHANDELD</h2>
+          <div id="ti-done"></div>
+        </div>
+        <div class="card" style="margin-top:16px">
+          <h2>WERELD</h2>
+          <button class="btn small danger" id="btn-reset">PADDOCK OPNIEUW INRICHTEN</button>
+          <p class="small">Zet vee, akkers en wild opnieuw neer. Tassen, rollen en inleveringen blijven.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <script>
+    const $ = (id) => document.getElementById(id);
+    const esc = (s) => String(s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
+    let ws = null, state = null, pw = sessionStorage.getItem('v25-gm') || '';
+    const label = (k) => (state && state.items[k] && state.items[k].label) || k;
+    const itemsTxt = (inv) => Object.entries(inv || {}).filter(([, n]) => n > 0).map(([k, n]) => `${n} ${esc(label(k))}`).join(', ') || '<span class="off">leeg</span>';
+    const time = (ms) => new Date(ms).toLocaleTimeString('nl-NL', { hour: '2-digit', minute: '2-digit' });
+
+    function connect() {
+      ws = new WebSocket(`ws://${location.host}/ws`);
+      $('conn').className = 'conn connecting';
+      ws.onopen = () => ws.send(JSON.stringify({ t: 'gm-auth', pw }));
+      ws.onmessage = (ev) => {
+        const m = JSON.parse(ev.data);
+        if (m.t === 'gm-denied') { $('login').hidden = false; $('app').hidden = true; $('login-msg').textContent = 'Verkeerd wachtwoord.'; sessionStorage.removeItem('v25-gm'); ws.onclose = null; ws.close(); }
+        if (m.t === 'gm-ok') { $('login').hidden = true; $('app').hidden = false; $('conn').className = 'conn online'; sessionStorage.setItem('v25-gm', pw); }
+        if (m.t === 'gm-state') { state = m; render(); }
+      };
+      ws.onclose = () => { $('conn').className = 'conn offline'; setTimeout(connect, 2000); };
+    }
+    const gm = (op, extra = {}) => ws && ws.readyState === 1 && ws.send(JSON.stringify({ t: 'gm', op, ...extra }));
+
+    function render() {
+      if (!state) return;
+      $('codes').innerHTML = Object.entries(state.roles).map(([k, r]) => `${esc(r.label)}-code: <b>${esc(r.code)}</b>`).join(' &nbsp;·&nbsp; ');
+      const q = $('ti-search').value.trim().toUpperCase();
+      const open = state.turnins.filter(t => t.status === 'open' && (!q || t.code.includes(q) || t.name.toUpperCase().includes(q)));
+      $('ti-open').innerHTML = open.length ? open.map(t => `
+        <div class="card ti-open" style="margin-top:8px">
+          <span class="ti-code">${esc(t.code)}</span> — <b>${esc(t.name)}</b> <span class="small">${time(t.at)}</span>
+          <div>${itemsTxt(t.items)}</div>
+          <button class="btn tiny" data-pay="${esc(t.code)}">UITBETAALD</button>
+          <button class="btn tiny ghost" data-back="${esc(t.code)}">TERUG IN TAS</button>
+        </div>`).join('') : '<p class="small">Geen open inleveringen.</p>';
+      const done = state.turnins.filter(t => t.status !== 'open').slice(0, 20);
+      $('ti-done').innerHTML = done.length ? done.map(t => `<div class="feedrow ti-${t.status}"><i>${time(t.resolvedAt || t.at)}</i>${esc(t.code)} · ${esc(t.name)} · ${itemsTxt(t.items)} · ${t.status === 'paid' ? 'uitbetaald' : 'teruggezet'}</div>`).join('') : '<p class="small">Nog niets.</p>';
+
+      const sq = $('search').value.trim().toLowerCase();
+      $('players').innerHTML = state.players.filter(p => !sq || p.name.toLowerCase().includes(sq)).map(p => `
+        <tr class="${p.online ? '' : 'off'}">
+          <td>${p.online ? '🟢' : '⚫'} ${esc(p.name)}</td>
+          <td>${Object.entries(state.roles).map(([k, r]) => `<button class="tog ${k} ${p.roles.includes(k) ? 'on' : ''}" data-pid="${esc(p.id)}" data-role="${k}" data-on="${p.roles.includes(k) ? 0 : 1}">${esc(r.label)}</button>`).join('')}</td>
+          <td>${itemsTxt(p.inv)}</td>
+        </tr>`).join('') || '<tr><td colspan="3" class="small">Nog geen spelers.</td></tr>';
+
+      $('feed-list').innerHTML = state.feed.map(e => `<div class="feedrow"><i>${Math.floor(e.at / 60)}m</i>${esc(e.text)}</div>`).join('') || '<p class="small">Nog stil.</p>';
+    }
+
+    document.addEventListener('click', (e) => {
+      const b = e.target.closest('button'); if (!b) return;
+      if (b.dataset.pay) gm('resolve', { code: b.dataset.pay, approve: true });
+      if (b.dataset.back) gm('resolve', { code: b.dataset.back, approve: false });
+      if (b.dataset.role) gm('role', { pid: b.dataset.pid, role: b.dataset.role, on: b.dataset.on === '1' });
+    });
+    $('ti-search').addEventListener('input', render);
+    $('search').addEventListener('input', render);
+    $('btn-say').addEventListener('click', () => { const v = $('say').value.trim(); if (v) { gm('say', { text: v }); $('say').value = ''; } });
+    $('btn-reset').addEventListener('click', () => { if (confirm('Paddock opnieuw inrichten? (tassen blijven)')) gm('reset'); });
+    $('go').addEventListener('click', () => { pw = $('pw').value; connect(); });
+    $('pw').addEventListener('keydown', (e) => { if (e.key === 'Enter') $('go').click(); });
+    if (pw) connect();
+  </script>
+</body>
+</html>

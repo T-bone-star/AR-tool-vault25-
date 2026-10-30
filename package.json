@@ -1,0 +1,19 @@
+{
+  "name": "vault25-paddock",
+  "version": "2.0.0",
+  "private": true,
+  "description": "Vault 25 Brahmin Paddock — multiplayer AR voor de LARP (Android-app + server)",
+  "scripts": {
+    "server": "cd server && npm start",
+    "test": "cd server && npm test",
+    "android:sync": "cap sync android",
+    "android:open": "cap open android"
+  },
+  "dependencies": {
+    "@capacitor/android": "^8.0.0",
+    "@capacitor/core": "^8.0.0"
+  },
+  "devDependencies": {
+    "@capacitor/cli": "^8.0.0"
+  }
+}
