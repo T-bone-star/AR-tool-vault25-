@@ -414,23 +414,121 @@ for (let i = 0; i < 12000; i++) {
 check('10 min duurtest: wild nooit in het hek', wildInside === 0);
 check('10 min duurtest: wild blijft beperkt', w.critters.filter(c => c.state !== 'DEAD').length <= cfg.wildlife.maxAlive);
 
-// ---------- zonder bereik: pakket en bijschrijven
+// ---------- zonder bereik: 10 telefoons, maar elke buit maar één keer
 {
   const pk = w.offlinePack();
   check('offline-pakket zonder GM-wachtwoord en rolcodes', !pk.cfg.gmPassword && !Object.values(pk.cfg.roles).some(r => r.code) && pk.cfg.radio.enabled === false);
-  check('offline-pakket bevat hokstand', pk.seed.pens.length === cfg.pens.length);
-  const out = [];
-  const w2 = new World(cfg, {}, (to, m) => out.push([to, m]));
-  w2.join('p-o', 'Olga');
-  const a1 = w2.syncOffline('p-o', 's1', { ei: 3, vlees: 999, nep: 5, veren: -2 });
-  const max = (cfg.offline && cfg.offline.maxPerItem) || 40;
-  check('bijschrijven: maximum per soort, onbekend/negatief genegeerd', a1.ei === 3 && a1.vlees === max && !('nep' in a1) && !('veren' in a1), JSON.stringify(a1));
-  const a2 = w2.syncOffline('p-o', 's1', { ei: 5, vlees: max });
-  check('zelfde tocht opnieuw: alleen het verschil', a2.ei === 2 && !a2.vlees && w2.players.get('p-o').inv.ei === 5, JSON.stringify(a2));
-  check('bevestiging naar de telefoon', out.some(([to, m]) => to === 'p-o' && m.t === 'synced' && m.sid === 's1'));
-  const w3 = new World(cfg, JSON.parse(JSON.stringify(w2.toJSON())));
-  w3.join('p-o', 'Olga');
-  check('tochten blijven bewaard na herstart (geen dubbel)', Object.keys(w3.syncOffline('p-o', 's1', { ei: 5 })).length === 0);
+
+  // Servertijd = echte klok (zo rekenen ook de telefoons)
+  let wall = 1_800_000_000_000;
+  const clock = () => new Date(wall);
+  const c2 = JSON.parse(JSON.stringify(cfg));
+  c2.wildlife.types.forEach(t => { t.hitChance = 1; t.skittishRange = 0; });
+  c2.behavior.maxShotRange = 1e6;
+  const sout = [];
+  const srv = new World(c2, {}, (to, m) => sout.push({ to, m }), { clock });
+  const names = ['Ada', 'Bas', 'Cor', 'Dirk', 'Eva', 'Fem', 'Gijs', 'Hans', 'Ilse', 'Joop'];
+  for (const n of names) { const p = srv.join('p-' + n, n, ['ZAAD-25', 'SPOOR-25', 'HOK-3']); }
+  srv.tick(0.05);
+  srv.fields[0].plantedAt = srv.t - 10000;                       // akker 0 rijp
+  const kip = srv.animals.find(a => a.type === 'kip');
+  kip.lastCollected.ei = srv.t - 10000;                          // ei klaar
+  check('stand bewaart dieren met hun nummer', JSON.stringify(srv.offlineSeed().animals.map(a => a.id)) === JSON.stringify(srv.animals.map(a => a.id)));
+
+  // Alle 10 lopen buiten bereik met dezelfde stand
+  const seed = JSON.parse(JSON.stringify(srv.offlinePack()));
+  const phones = names.map(n => {
+    const claims = [];
+    const pw = new World(seed.cfg, { ...seed.seed, players: [{ id: 'p-' + n, name: n, roles: ['boer', 'jager', 'vee3'], inv: {} }] },
+      (to, m) => { if (m.t === 'claim') claims.push(m.claim); }, { offline: true, clock });
+    pw.join('p-' + n, n);
+    return { n, pw, claims };
+  });
+  check('telefoon zonder bereik: zelfde dieren als de server', phones.every(ph => ph.pw.animals.length === srv.animals.length && ph.pw.animals.every((a, i) => a.id === srv.animals[i].id && a.type === srv.animals[i].type)));
+  check('telefoon zonder bereik: zelfde oogstronde', phones.every(ph => ph.pw.fields[0].plantedAt === srv.fields[0].plantedAt));
+  for (const ph of phones) ph.pw.tick(0.05);
+  check('wild zonder bereik: zelfde beest (zelfde nummer) op elke telefoon',
+    phones.every(ph => ph.pw.critters.length && ph.pw.critters[0].id === phones[0].pw.critters[0].id && ph.pw.critters[0].type === phones[0].pw.critters[0].type),
+    phones[0].pw.critters.map(c => c.id + ':' + c.type).join());
+
+  // Iedereen oogst akker 0, raapt het ei van dezelfde kip en schiet hetzelfde beest
+  for (const ph of phones) {
+    const pw = ph.pw, id = 'p-' + ph.n, f0 = pw.fields[0];
+    pw.setPose(id, { x: f0.cfg.x, y: 1.6, z: f0.cfg.z + 4, dx: 0, dy: -1.6, dz: -4 });
+    pw.act(id, 'harvest', 0);
+    const k = pw.animals.find(a => a.id === kip.id);
+    pw.setPose(id, { x: k.x, y: 1.6, z: k.z + 2, dx: 0, dy: -1.2, dz: -2 });
+    pw.act(id, 'care', k.id);
+    const c = pw.critters[0];
+    pw.setPose(id, { x: c.x + 3, y: 1.6, z: c.z + 3, dx: -3, dy: (c.def.aimHeight || 0.2) - 1.6, dz: -3 });
+    pw.act(id, 'shoot', c.id);
+  }
+  check('lokaal had iedereen het (zo voelt het buiten bereik)', phones.every(ph => ph.pw.players.get('p-' + ph.n).inv.tato > 0 && ph.claims.length === 3),
+    phones.map(ph => ph.claims.length).join(','));
+
+  wall += 60000; for (let i = 0; i < 20; i++) srv.tick(0.05);
+  const results = phones.map(ph => srv.syncClaims('p-' + ph.n, ph.claims));
+  const totTato = names.reduce((a, n) => a + (srv.players.get('p-' + n).inv.tato || 0), 0);
+  const totEi = names.reduce((a, n) => a + (srv.players.get('p-' + n).inv.ei || 0), 0);
+  const killDef = srv.offlineCritter(Number(phones[0].claims.find(c => c.k === 'kill').c.slice(1))).def;
+  const lootKey = Object.keys(killDef.loot || {})[0];
+  const totLoot = names.reduce((a, n) => a + (srv.players.get('p-' + n).inv[lootKey] || 0), 0);
+  check('akker: maar één keer oogst voor 10 spelers', totTato === srv.fields[0].cfg.yield, `${totTato}`);
+  check('ei: maar één keer', totEi === 1, `${totEi}`);
+  check('beest: maar één keer buit', totLoot === (killDef.loot || {})[lootKey], `${totLoot} ${lootKey}`);
+  check('eerste terug bij de wifi krijgt het', (srv.players.get('p-Ada').inv.tato || 0) > 0 && (srv.players.get('p-Ada').inv.ei || 0) === 1);
+  check('de andere 9 horen "te laat" met de naam', results.slice(1).every(r => r.late.length >= 3) &&
+    sout.some(o => o.to === 'p-Bas' && o.m.t === 'msg' && /Te laat, iemand was je voor.*Ada was eerder/.test(o.m.text)),
+    (sout.filter(o => o.to === 'p-Bas' && o.m.t === 'msg').at(-1) || {}).m?.text);
+  const before = JSON.stringify(srv.players.get('p-Ada').inv);
+  srv.syncClaims('p-Ada', phones[0].claims);
+  check('nogmaals sturen: niets dubbel', JSON.stringify(srv.players.get('p-Ada').inv) === before);
+
+  // Online sneller dan offline: wie bij de wifi oogst, wint van wie nog buiten loopt
+  srv.fields[1].plantedAt = srv.t - 10000;
+  const late = new World(seed.cfg, { ...srv.offlineSeed(), players: [{ id: 'p-Joop', name: 'Joop', roles: ['boer'], inv: {} }] },
+    () => {}, { offline: true, clock });
+  const jc = [];
+  late.emit = (to, m) => { if (m.t === 'claim') jc.push(m.claim); };
+  late.join('p-Joop', 'Joop');
+  const f1 = late.fields[1];
+  late.setPose('p-Joop', { x: f1.cfg.x, y: 1.6, z: f1.cfg.z + 4, dx: 0, dy: -1.6, dz: -4 });
+  late.act('p-Joop', 'harvest', 1);
+  srv.setPose('p-Hans', { x: f1.cfg.x, y: 1.6, z: f1.cfg.z + 4, dx: 0, dy: -1.6, dz: -4 });
+  srv.act('p-Hans', 'harvest', 1);                               // Hans, online, was eerder
+  const r = srv.syncClaims('p-Joop', jc);
+  check('online oogst gaat voor: offline speler krijgt "te laat"', r.late.length === 1 && /Hans was eerder/.test(r.late[0]), r.late.join());
+
+  // Tweede ronde offline op dezelfde akker telt wél (keten van rondes klopt)
+  const solo = new World(seed.cfg, { ...srv.offlineSeed(), players: [{ id: 'p-Ilse', name: 'Ilse', roles: ['boer'], inv: {} }] },
+    () => {}, { offline: true, clock });
+  const ic = []; solo.emit = (to, m) => { if (m.t === 'claim') ic.push(m.claim); };
+  solo.join('p-Ilse', 'Ilse');
+  const f2 = solo.fields[2]; f2.plantedAt = srv.fields[2].plantedAt;
+  srv.fields[2].plantedAt = srv.t - 10000; f2.plantedAt = srv.fields[2].plantedAt;
+  solo.setPose('p-Ilse', { x: f2.cfg.x, y: 1.6, z: f2.cfg.z + 4, dx: 0, dy: -1.6, dz: -4 });
+  solo.act('p-Ilse', 'harvest', 2);
+  for (let i = 0; i < (f2.cfg.growSeconds || 90) * 20 + 40; i++) solo.tick(0.05);
+  solo.act('p-Ilse', 'harvest', 2);
+  for (let i = 0; i < (f2.cfg.growSeconds || 90) * 20 + 40; i++) srv.tick(0.05);
+  const ri = srv.syncClaims('p-Ilse', ic);
+  check('twee oogstrondes offline op één akker: allebei bijgeschreven', ic.length === 2 && ri.late.length === 0 && ri.got[f2.cfg.crop] === 2 * f2.cfg.yield, JSON.stringify(ri));
+
+  // Uitgebroken dier: twee spelers buiten bereik brengen het "terug" — één krijgt de beloning
+  const esc = srv.animals.find(a => a.type === 'brahmin');
+  srv.startEscape(esc); for (let i = 0; i < 400 && esc.state === 'ESCAPE'; i++) srv.tick(0.05);
+  const rc = { k: 'return', a: esc.id, s: esc.escId, at: srv.t };
+  const kk = (n) => srv.players.get('p-' + n).inv.kroonkurken || 0;
+  const k0 = kk('Cor'), k1 = kk('Dirk');
+  srv.syncClaims('p-Cor', [rc]);
+  srv.syncClaims('p-Dirk', [rc]);
+  check('dier terugbrengen buiten bereik: één beloning, dier weer in het hok',
+    kk('Cor') - k0 === (cfg.rewards.returnAnimal.kroonkurken || 0) && kk('Dirk') === k1 && esc.state === 'GRAZE');
+
+  // Herstart van de server: zelfde dieren/akkers, aanspraken blijven geldig
+  const again = new World(c2, JSON.parse(JSON.stringify(srv.toJSON())), () => {}, { clock });
+  check('na herstart: dieren met hetzelfde nummer terug', again.animals.map(a => a.id).join() === srv.animals.map(a => a.id).join());
+  check('na herstart: al verwerkte aanspraken niet opnieuw', !again.syncClaims('p-Ada', phones[0].claims).late.length && JSON.stringify(again.players.get('p-Ada').inv) === before);
 }
 
 console.log(`\n${pass} geslaagd, ${fail} gefaald`);

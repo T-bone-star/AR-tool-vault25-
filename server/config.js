@@ -180,10 +180,11 @@ module.exports = {
   },
 
   // --- Zonder bereik ---------------------------------------------------------
-  // Valt de wifi weg (bv. bij de paddock), dan speelt de telefoon zelf verder.
-  // Wat iemand dan verdient wordt bijgeschreven zodra hij weer verbinding
-  // heeft, met een maximum per soort per tocht (tegen misbruik).
-  offline: { enabled: true, maxPerItem: 40 },
+  // Valt de wifi weg (bv. bij de paddock), dan speelt de telefoon zelf verder
+  // met dezelfde dieren, akkers en hetzelfde wild als de rest. Terug bij de
+  // wifi beslist de server per actie wie EERST was: dezelfde akker, hetzelfde
+  // ei of hetzelfde beest gaat maar naar één speler; de rest krijgt "te laat".
+  offline: { enabled: true, maxClaims: 300 },
 
   // --- Radio (FreeRadical / bunkerradio) ----------------------------------
   // De server zet berichten klaar; de bunkerradio-Pi haalt ze op via

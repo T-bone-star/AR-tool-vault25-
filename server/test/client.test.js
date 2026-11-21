@@ -258,7 +258,7 @@ async function startServer() {
     const gotLocal = (piet.net.me.inv[lf.cfg.crop] || 0) - (before[lf.cfg.crop] || 0);
     check('lokaal: oogst in de tas', gotLocal === lf.cfg.yield, JSON.stringify(piet.net.me.inv));
     const pend = piet.ctx.V25.offline.pending();
-    check('buit bewaard als "nog bij te schrijven"', pend && pend.items[lf.cfg.crop] === lf.cfg.yield, JSON.stringify(pend));
+    check('actie bewaard als aanspraak', pend && pend.claims.length === 1 && pend.claims[0].k === 'harvest', JSON.stringify(pend));
     piet.net.send({ t: 'turnin' }); await piet.run(100);
     check('inleveren zonder bereik: nette melding', /alleen met bereik/.test(piet.last('net-msg').detail.text));
 
@@ -269,7 +269,7 @@ async function startServer() {
     check('"nog bij te schrijven" leeg', !piet.ctx.V25.offline.pending());
     check('melding "bijgeschreven"', piet.all('net-msg').some(e => /Bijgeschreven/.test(e.detail.text)));
     // Dubbel sturen schrijft niet dubbel bij
-    piet.net.send({ t: 'sync', sid: pend.sid, items: pend.items }); await piet.run(400);
+    piet.net.send({ t: 'sync', claims: pend.claims }); await piet.run(400);
     check('zelfde tocht nogmaals sturen: niet dubbel', (piet.net.me.inv[lf.cfg.crop] || 0) === (before[lf.cfg.crop] || 0) + lf.cfg.yield);
   } catch (e) {
     console.error(e); fail++;

@@ -22,6 +22,13 @@ const pick = (arr) => arr[Math.floor(Math.random() * arr.length)];
 const fill = (tpl, vars) => tpl.replace(/\{(\w+)\}/g, (m, k) => (vars[k] != null ? vars[k] : m));
 const cap1 = (s) => s.charAt(0).toUpperCase() + s.slice(1);
 const CONDITIONS = ['goed', 'beschadigd', 'kapot'];
+// Vast pseudo-toeval: zelfde getal op elke telefoon en op de server
+function h01(n, salt) {
+  let x = (Math.imul(n | 0, 374761393) + Math.imul(salt, 668265263)) | 0;
+  x = Math.imul(x ^ (x >>> 13), 1274126177);
+  x ^= x >>> 16;
+  return (x >>> 0) / 4294967296;
+}
 const SIDES = ['noord', 'oost', 'zuid', 'west'];
 
 class World {
@@ -31,14 +38,19 @@ class World {
     this.W = cfg.wildlife;
     this.S = cfg.species || {};
     this.emit = emit;
-    this.t = 0;
-    this.nextId = 1;
+    // offline = deze wereld draait op een telefoon zonder bereik: geen eigen
+    // uitbraken, wild volgens vast schema, en elke actie wordt een "aanspraak"
+    // die de server later beoordeelt (wie was eerst?).
+    this.offline = !!opts.offline;
+    this.t = Number.isFinite(saved.t) ? saved.t : 0;
+    this.nextId = saved.nextId || 1;
+    this.claimed = saved.claimed || {};
     this.returnedTotal = 0;
     this.players = new Map();
     for (const p of saved.players || []) {
       this.players.set(p.id, {
         id: p.id, name: p.name, roles: new Set(p.roles || []), inv: p.inv || {},
-        online: false, pose: null, lastShot: -99, syncs: p.syncs || {},
+        online: false, pose: null, lastShot: -99,
       });
     }
     this.turnins = saved.turnins || [];
@@ -69,6 +81,8 @@ class World {
     this.dirty = true;
     this.saveNeeded = false;
     this.savedHerd = saved.pens ? Object.fromEntries(saved.pens.map(p => [p.id, p.animals || {}])) : null;
+    this.savedAnimals = Array.isArray(saved.animals) ? saved.animals : null;
+    this.savedFields = Array.isArray(saved.fields) ? saved.fields : null;
     this.spawnWorld();
   }
 
@@ -121,15 +135,33 @@ class World {
 
   spawnWorld() {
     this.animals = [];
-    for (const pen of this.pens) {
-      if (!pen.active) continue;
-      const herd = this.savedHerd ? (this.savedHerd[pen.id] || {}) : (pen.start || {});
-      for (const sp of pen.species) for (let i = 0; i < (herd[sp] || 0); i++) this.addAnimal(pen, sp);
+    if (this.savedAnimals) {
+      // Precies dezelfde dieren terug (na herstart, of op een telefoon zonder bereik)
+      for (const s of this.savedAnimals) {
+        const pen = this.penById[s.pen];
+        if (!pen || !pen.active) continue;
+        const a = this.addAnimal(pen, s.type);
+        a.id = s.id; a.x = s.x; a.z = s.z; a.yaw = s.yaw || 0;
+        a.state = s.state === 'FOLLOW' ? 'WANDER_OUTSIDE' : (STATE_CODE[s.state] ? s.state : 'GRAZE');
+        a.lastCollected = { ...a.lastCollected, ...(s.lastCollected || {}) };
+        a.escId = s.escId || null; a.outSince = s.outSince ?? null; a.immuneUntil = s.immuneUntil || 0;
+        a.lastBy = s.lastBy || {};
+        if (a.state === 'ESCAPE') a.target = { ...pen.gateInside };
+      }
+    } else {
+      for (const pen of this.pens) {
+        if (!pen.active) continue;
+        const herd = this.savedHerd ? (this.savedHerd[pen.id] || {}) : (pen.start || {});
+        for (const sp of pen.species) for (let i = 0; i < (herd[sp] || 0); i++) this.addAnimal(pen, sp);
+      }
     }
     this.savedHerd = null;
-    this.fields = this.cfg.fields.map((f, i) => ({
-      idx: i, cfg: f, plantedAt: this.t - (f.growSeconds || 90) * G.rand(0.4, 0.9),
-    }));
+    this.fields = this.cfg.fields.map((f, i) => {
+      const old = this.savedFields && this.savedFields[i];
+      return { idx: i, cfg: f, lastBy: old ? old.lastBy || null : null,
+        plantedAt: old && Number.isFinite(old.plantedAt) ? old.plantedAt : this.t - (f.growSeconds || 90) * G.rand(0.4, 0.9) };
+    });
+    this.savedAnimals = null; this.savedFields = null;
     this.critters = [];
     this.nextSpawn = this.t + (this.W ? this.W.firstSpawnSeconds || 3 : Infinity);
   }
@@ -144,7 +176,7 @@ class World {
       id: 'a' + this.nextId++, type: sp, pen: pen.id, level: def.level || 1, speed: def.speed || 1,
       x: p.x, z: p.z, yaw: G.rand(0, 6.28), state: 'GRAZE', target: null, pauseUntil: 0,
       canEscape: def.escapes !== false, immuneUntil: 0, outSince: null, lastCollected: last,
-      escapeLeg: 0, followBy: null, lostFor: 0, blocked: false, hinted: false,
+      escapeLeg: 0, followBy: null, lostFor: 0, blocked: false, hinted: false, escId: null, lastBy: {},
     };
     this.animals.push(a);
     return a;
@@ -220,6 +252,8 @@ class World {
     this.dirty = true;
   }
   msg(p, text, tone = 'info') { this.emit(p.id, { t: 'msg', text, tone }); }
+  // Alleen zonder bereik: actie vastleggen voor de server
+  claim(p, c) { if (this.offline) this.emit(p.id, { t: 'claim', claim: { ...c, at: this.t } }); }
   sendMe(p) {
     this.emit(p.id, { t: 'me', id: p.id, name: p.name, roles: [...p.roles], inv: p.inv });
     this.dirty = true;
@@ -316,6 +350,7 @@ class World {
     }
     c.state = 'DEAD';
     c.deadAt = this.t;
+    this.claim(p, { k: 'kill', c: c.id });
     this.depleteAt(c.x, c.z, this.hasRole(p, this.cfg.rules.huntLootRole));
     if (this.hasRole(p, this.cfg.rules.huntLootRole)) {
       this.give(p, def.loot || {});
@@ -342,7 +377,9 @@ class World {
       this.msg(p, `Te laat of te vroeg — de ${name} is niet rijp.`); return;
     }
     const n = f.cfg.yield || f.cfg.rows || 1;
+    this.claim(p, { k: 'harvest', f: f.idx, s: f.plantedAt });
     f.plantedAt = this.t;
+    f.lastBy = p.name;
     this.give(p, { [f.cfg.crop]: n });
     this.msg(p, `${n} ${name} geoogst.`, 'good');
     this.event('harvest', `${p.name} oogstte de ${name}`, { by: p.id, field: f.idx });
@@ -369,8 +406,9 @@ class World {
     }
     const ready = this.readyProducts(a);
     if (!ready.length) { this.msg(p, `Te laat — deze ${name} is net verzorgd.`); return; }
-    const items = {};
-    for (const prod of ready) { a.lastCollected[prod] = this.t; items[prod] = 1; }
+    const items = {}, stamps = {};
+    for (const prod of ready) { stamps[prod] = a.lastCollected[prod]; a.lastCollected[prod] = this.t; a.lastBy[prod] = p.name; items[prod] = 1; }
+    this.claim(p, { k: 'care', a: a.id, s: stamps });
     this.give(p, items);
     this.msg(p, `${cap1(name)} verzorgd: ${this.itemsText(items)}.`, 'good');
     this.event('care', `${p.name} verzorgde een ${name}`, { by: p.id });
@@ -507,6 +545,7 @@ class World {
   startEscape(a) {
     const pen = this.penById[a.pen];
     a.state = 'ESCAPE';
+    a.escId = 'e' + Math.round(this.t * 10) + a.id;
     a.escapeLeg = 0;
     if (pen.cond === 'kapot') {
       // Door een gat in het hek: recht naar buiten, de kant op waar het toch al stond
@@ -526,6 +565,7 @@ class World {
   }
 
   randomEscapes(dt) {
+    if (this.offline) return;   // zonder bereik alleen uitbraken die de server al had
     if (this.outsideCount() >= (this.P.maxOutside || 3)) return;
     for (const pen of this.pens) {
       if (!pen.active) continue;
@@ -751,6 +791,7 @@ class World {
           this.radioLast.escape = null;
           this.returnedTotal++;
           const by = a.followBy; a.followBy = null;
+          if (p) this.claim(p, { k: 'return', a: a.id, s: a.escId });
           if (p && this.hasRole(p, this.cfg.rules.returnRole)) {
             this.give(p, this.cfg.rewards.returnAnimal || {});
             this.msg(p, `De ${this.speciesLabel(a.type)} is terug: ${this.itemsText(this.cfg.rewards.returnAnimal || {})}.`, 'good');
@@ -832,7 +873,22 @@ class World {
     this.critters = this.critters.filter(c => !(c.state === 'DEAD' && this.t - c.deadAt > 4));
     const alive = this.critters.filter(c => c.state !== 'DEAD');
     const cap = this.wildCapacity();
-    const sector = (alive.length < cap.max && this.t >= this.nextSpawn) ? this.pickSpawnSector() : null;
+    if (this.offline) {
+      // Wild volgens vast schema: elke telefoon zonder bereik ziet hetzelfde dier
+      // met hetzelfde nummer. Wie het als eerste meldt bij de server, krijgt het.
+      const slot = this.wildSlot();
+      if (slot !== this.lastSlot) {
+        this.lastSlot = slot;
+        const o = this.offlineCritter(slot);
+        const sct = this.sectors[o.sector];
+        if (alive.length < cap.max && sct.stock >= (W.minStockToSpawn ?? 0.1) && h01(slot, 3) < Math.min(1, this.wildMult * sct.stock)) {
+          const s = this.wildSpot(sct);
+          this.critters.push({ id: 'o' + slot, type: o.def.type, def: o.def, x: s.x, z: s.z, yaw: 0,
+            state: 'WANDER', target: null, pauseUntil: 0, fleeUntil: 0 });
+        }
+      }
+    }
+    const sector = (!this.offline && alive.length < cap.max && this.t >= this.nextSpawn) ? this.pickSpawnSector() : null;
     if (sector) {
       const total = W.types.reduce((s, t) => s + (t.weight || 1), 0);
       let r = Math.random() * total, def = W.types[0];
@@ -940,8 +996,8 @@ class World {
   }
 
   // ------------------------------------------------------- offline spelen
-  // Alles wat een telefoon nodig heeft om ZONDER verbinding de wereld zelf te
-  // draaien. Zonder rolcodes, GM-wachtwoord of radiotoken.
+  // Alles wat een telefoon nodig heeft om ZONDER verbinding precies deze wereld
+  // verder te draaien. Zonder rolcodes, GM-wachtwoord of radiotoken.
   offlinePack() {
     const cfg = JSON.parse(JSON.stringify(this.cfg));
     delete cfg.gmPassword;
@@ -951,43 +1007,145 @@ class World {
   }
   offlineSeed() {
     const j = this.toJSON();
-    return { pens: j.pens, wildMult: j.wildMult, sectors: j.sectors };
+    return { t: j.t, wall: this.clock().getTime(), nextId: j.nextId, pens: j.pens, wildMult: j.wildMult,
+      sectors: j.sectors, animals: j.animals, fields: j.fields };
   }
 
-  // Buit van een tocht zonder bereik bijschrijven. sid = id van die tocht; de
-  // telefoon stuurt steeds het TOTAAL van die tocht, dus opnieuw sturen (na
-  // een haperende verbinding) schrijft nooit dubbel bij.
-  syncOffline(id, sid, items) {
+  wildSlotSeconds() { return (this.W && this.W.respawnSeconds) || 15; }
+  wildSlot() { return Math.floor(this.clock().getTime() / 1000 / this.wildSlotSeconds()); }
+  // Welk wild hoort bij dit tijdvak? (gebied + soort, voor iedereen gelijk)
+  offlineCritter(slot) {
+    const types = this.W.types, tot = types.reduce((a, t) => a + (t.weight || 1), 0);
+    let r = h01(slot, 2) * tot, def = types[0];
+    for (const t of types) { r -= (t.weight || 1); if (r <= 0) { def = t; break; } }
+    return { sector: Math.floor(h01(slot, 1) * this.sectors.length) % this.sectors.length, def };
+  }
+
+  // Aanspraken van een tocht zonder bereik beoordelen. Per stuk: was de akker,
+  // het ei of het dier er nog? Dan is het voor deze speler. Iemand anders was
+  // eerder (online, of eerder terug bij de wifi)? Dan "te laat".
+  // Opnieuw sturen schrijft nooit dubbel bij.
+  syncClaims(id, claims) {
     const p = this.players.get(id);
     const O = this.cfg.offline || {};
-    sid = String(sid || '').slice(0, 40);
-    if (!p || !sid || O.enabled === false || !items || typeof items !== 'object') return null;
-    p.syncs = p.syncs || {};
-    const prev = p.syncs[sid] || {}, now = { ...prev }, add = {};
-    const max = O.maxPerItem || 40;
-    for (const [k, v] of Object.entries(items)) {
-      if (!this.cfg.items[k]) continue;
-      const n = Math.min(Math.floor(Number(v)), max);
-      if (!(n > 0)) continue;
-      if (n > (prev[k] || 0)) { add[k] = n - (prev[k] || 0); now[k] = n; }
+    if (!p || O.enabled === false || !Array.isArray(claims)) return null;
+    const now = this.clock().getTime(), got = {}, late = [];
+    for (const c of claims.slice(0, O.maxClaims || 300)) {
+      if (!c || typeof c !== 'object') continue;
+      const r = this.applyClaim(p, c, now);
+      if (!r) continue;
+      for (const k in (r.items || {})) got[k] = (got[k] || 0) + r.items[k];
+      if (r.late) late.push(r.late);
     }
-    p.syncs[sid] = now;
-    const keys = Object.keys(p.syncs);
-    if (keys.length > 10) for (const k of keys.slice(0, keys.length - 10)) delete p.syncs[k];
-    this.emit(p.id, { t: 'synced', sid });     // eerst bevestigen, dán de nieuwe tas
-    if (Object.keys(add).length) {
-      this.give(p, add);
-      this.msg(p, `Bijgeschreven van je tocht zonder bereik: ${this.itemsText(add)}.`, 'good');
-      this.event('offline', `${p.name} komt terug uit het veld met ${this.itemsText(add)}.`, { by: p.id });
+    for (const [k, v] of Object.entries(this.claimed)) if (now - v.w > 6 * 3600e3) delete this.claimed[k];
+    this.emit(p.id, { t: 'synced', n: claims.length });   // eerst bevestigen, dán de nieuwe tas
+    if (Object.keys(got).length) {
+      this.give(p, got);
+      this.msg(p, `Bijgeschreven van je tocht zonder bereik: ${this.itemsText(got)}.`, 'good');
+      this.event('offline', `${p.name} komt terug uit het veld met ${this.itemsText(got)}.`, { by: p.id });
     }
-    this.saveNeeded = true;
-    return add;
+    if (late.length) {
+      const cnt = {};
+      for (const l of late) cnt[l] = (cnt[l] || 0) + 1;
+      this.msg(p, 'Te laat, iemand was je voor: ' + Object.entries(cnt).map(([l, n]) => (n > 1 ? n + '× ' : '') + l).join('; ') + '.', 'bad');
+    }
+    this.saveNeeded = true; this.dirty = true;
+    return { got, late };
+  }
+
+  applyClaim(p, c, now) {
+    // Tijdstip van de actie op de telefoon (in wereldtijd). Klopt de klok niet, dan nu.
+    const at = Number.isFinite(c.at) && c.at <= this.t + 600 ? c.at : this.t;
+    const mark = (key) => { this.claimed[key] = { pid: p.id, by: p.name, w: now }; };
+    const seen = (key) => this.claimed[key];
+    const byTxt = (name) => (name && name !== p.name ? ` (${name} was eerder)` : '');
+
+    if (c.k === 'harvest') {
+      const f = this.fields[Number(c.f)];
+      if (!f) return null;
+      const key = `h:${f.idx}:${c.s}`, old = seen(key);
+      if (old && old.pid === p.id) return null;
+      mark(key);
+      const name = this.label(f.cfg.crop).toLowerCase();
+      if (!this.hasRole(p, this.cfg.rules.harvestRole)) return null;
+      const ripeAt = c.s + (f.cfg.growSeconds || 90);
+      if (old || f.plantedAt !== c.s || this.t < ripeAt - 120) return { late: `oogst ${name}${byTxt(old ? old.by : f.lastBy)}` };
+      f.plantedAt = Math.max(at, c.s);
+      f.lastBy = p.name;
+      return { items: { [f.cfg.crop]: f.cfg.yield || f.cfg.rows || 1 } };
+    }
+
+    if (c.k === 'care') {
+      const a = this.animals.find(x => x.id === c.a);
+      if (!a || !c.s || typeof c.s !== 'object') return null;
+      const items = {}, lateBits = [];
+      let any = false;
+      for (const [prod, stamp] of Object.entries(c.s)) {
+        const key = `c:${a.id}:${prod}:${stamp}`, old = seen(key);
+        if (old && old.pid === p.id) continue;
+        any = true;
+        mark(key);
+        if (!this.hasLevel(p, this.cfg.rules.careGroup, a.level)) continue;
+        if (!old && a.lastCollected[prod] === stamp) {
+          a.lastCollected[prod] = at; a.lastBy[prod] = p.name; items[prod] = 1;
+        } else lateBits.push(`${this.label(prod).toLowerCase()} van een ${this.speciesLabel(a.type)}${byTxt(old ? old.by : a.lastBy[prod])}`);
+      }
+      if (!any) return null;
+      return { items, late: lateBits.join(', ') || null };
+    }
+
+    if (c.k === 'return') {
+      const a = this.animals.find(x => x.id === c.a);
+      if (!a || !c.s) return null;
+      const key = `r:${a.id}:${c.s}`, old = seen(key);
+      if (old && old.pid === p.id) return null;
+      mark(key);
+      if (old || a.state === 'GRAZE' || a.escId !== c.s) return { late: `${this.speciesLabel(a.type)} terugbrengen${byTxt(old && old.by)}` };
+      this.returnHome(a, p);
+      return { items: this.hasRole(p, this.cfg.rules.returnRole) ? { ...(this.cfg.rewards.returnAnimal || {}) } : {} };
+    }
+
+    if (c.k === 'kill') {
+      const m = /^o(\d+)$/.exec(String(c.c || ''));
+      if (!m) return null;
+      const slot = Number(m[1]), when = slot * this.wildSlotSeconds() * 1000;
+      if (when < now - 4 * 3600e3 || when > now + 120e3) return null;   // klopt niet met de klok
+      const key = `k:${slot}`, old = seen(key);
+      if (old && old.pid === p.id) return null;
+      mark(key);
+      const o = this.offlineCritter(slot), def = o.def;
+      if (old) return { late: `${def.label.toLowerCase()}${byTxt(old.by)}` };
+      const hunter = this.hasRole(p, this.cfg.rules.huntLootRole);
+      const s = this.sectors[o.sector];
+      s.stock = G.clamp(s.stock - (this.W.depletionPerKill ?? 0.15) * (((this.W.killWeight || {})[hunter ? 'jager' : 'anders']) ?? 1), 0, 1);
+      s.kills++;
+      return { items: hunter ? { ...(def.loot || {}) } : {} };
+    }
+    return null;
+  }
+
+  // Dier terug in z'n hok zetten (aanspraak van een speler zonder bereik)
+  returnHome(a, p) {
+    const pen = this.penById[a.pen];
+    const spot = this.randomInPen(pen);
+    a.x = spot.x; a.z = spot.z; a.target = null; a.followBy = null;
+    a.state = 'GRAZE'; a.outSince = null; a.pauseUntil = this.t + 1;
+    a.immuneUntil = this.t + (this.B.reEscapeSeconds || 90) * G.rand(0.8, 1.5);
+    this.returnedTotal++;
+    this.radioLast.escape = null;
+    this.event('return', `${p.name} bracht een ${this.speciesLabel(a.type)} terug in ${pen.naam} (buiten bereik)`, { by: p.id });
   }
 
   toJSON() {
     const counts = this.herdCounts();
     return {
-      players: [...this.players.values()].map(p => ({ id: p.id, name: p.name, roles: [...p.roles], inv: p.inv, syncs: p.syncs || {} })),
+      players: [...this.players.values()].map(p => ({ id: p.id, name: p.name, roles: [...p.roles], inv: p.inv })),
+      t: this.t,
+      nextId: this.nextId,
+      animals: this.animals.map(a => ({ id: a.id, type: a.type, pen: a.pen, x: r2(a.x), z: r2(a.z), yaw: r2(a.yaw),
+        state: a.state, lastCollected: a.lastCollected, escId: a.escId, outSince: a.outSince, immuneUntil: a.immuneUntil, lastBy: a.lastBy })),
+      fields: this.fields.map(f => ({ plantedAt: f.plantedAt, lastBy: f.lastBy })),
+      claimed: this.claimed,
       turnins: this.turnins,
       pens: this.pens.map(p => ({ id: p.id, active: p.active, cond: p.cond, animals: counts[p.id] })),
       wildMult: this.wildMult,

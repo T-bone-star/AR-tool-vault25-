@@ -11,7 +11,7 @@
  *   net-hello (layout) · net-snap · net-me · net-msg · net-event · net-shot
  *   net-turnin · net-status ({state: 'connecting'|'online'|'offline'})
  *   net-pack / net-seed (alles om zonder bereik door te spelen, zie offline.js)
- *   net-synced (buit van een tocht zonder bereik is bijgeschreven)
+ *   net-claim (actie zonder bereik, voor later) · net-synced (server heeft ze beoordeeld)
  *
  * Zonder bereik zet offline.js net.local: dan gaan send() en de berichten
  * naar een wereld die op de telefoon zelf draait.
@@ -71,6 +71,7 @@
         case 'turnin': fire('net-turnin', m); break;
         case 'seed': fire('net-seed', m.seed); break;
         case 'synced': fire('net-synced', m); break;
+        case 'claim': fire('net-claim', m.claim); break;
       }
     },
 

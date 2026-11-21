@@ -153,21 +153,26 @@ Testen: `PADDOCK_SERVER=192.168.68.116:8090 python3 paddock_radio.py`
 ## Geen bereik bij de paddock
 
 Valt de wifi weg, dan speelt de telefoon na 8 seconden **zelf verder**
-(gele stip + balk "GEEN BEREIK"). Hij gebruikt dezelfde spelregels als de
-server en de laatst bekende stand van de hokken en het wild.
+(gele stip + balk "GEEN BEREIK"), vanaf de laatste stand van de server:
+**dezelfde dieren, akkers en oogstrondes als iedereen**. Wild buiten bereik
+verschijnt volgens een vast schema, met hetzelfde nummer op elke telefoon.
 
-- Jagen, oogsten, verzorgen en vee terugbrengen werken gewoon.
-- Wat je verdient blijft op de telefoon bewaard (ook als de app sluit) en
-  wordt **bijgeschreven zodra je weer bij de wifi bent** ("Bijgeschreven van je
-  tocht zonder bereik …"). Het GM-scherm toont "X komt terug uit het veld met …".
-- Niet zonder bereik: rolcodes invoeren en inleveren. Andere spelers zie je
-  dan niet, en dieren/akkers lopen per telefoon los van de server.
+**Niemand krijgt dezelfde buit dubbel.** Elke actie buiten bereik wordt een
+aanspraak ("akker 2 uit de ronde van 10:03", "het ei van kip a7", "beest
+o4711"). Terug bij de wifi beslist de server per stuk wie eerst was:
+
+- online geoogst/geraapt/geschoten gaat altijd voor;
+- daarna wie als eerste terug in bereik is;
+- de rest krijgt "Te laat, iemand was je voor: oogst tato (Ada was eerder)".
+
+Ook als 10 spelers buiten bereik dezelfde akker oogsten: één krijgt het.
+Opnieuw sturen (haperende wifi) of een server-herstart schrijft nooit dubbel bij.
+
+- Niet zonder bereik: rolcodes invoeren en inleveren; andere spelers zie je
+  dan niet; dieren breken buiten bereik niet zelf uit.
 - Voorwaarde: de telefoon moet **één keer** met de server verbonden zijn
   geweest (dan haalt hij de spelregels op, zonder codes).
-- Maximum per soort per tocht: `offline.maxPerItem` in `server/config.js`.
-
-Na een wijziging in `server/sim.js`: `cd server && npm run bundle` (de
-telefoon gebruikt een kopie in `www/js/sim-bundle.js`; `npm test` controleert dat).
+- Na een wijziging in `server/sim.js`: `cd server && npm run bundle`.
 
 ## Modi
 

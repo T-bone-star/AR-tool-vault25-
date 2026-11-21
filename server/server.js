@@ -58,7 +58,14 @@ const world = new World(cfg, saved, (to, msg) => {
   }
 });
 
-setInterval(() => world.tick(TICK), TICK * 1000);
+// Echte verstreken tijd, zodat de wereldklok gelijk loopt met telefoons die
+// zonder bereik verder rekenen
+let lastTick = Date.now();
+setInterval(() => {
+  const now = Date.now();
+  world.tick(Math.min(0.25, Math.max(0, (now - lastTick) / 1000)));
+  lastTick = now;
+}, TICK * 1000);
 setInterval(() => {
   const s = JSON.stringify(world.snapshot());
   for (const c of conns) if (c.pid || c.gm) send(c, s);
@@ -78,7 +85,7 @@ setInterval(() => {
 setInterval(() => {
   const s = JSON.stringify({ t: 'seed', seed: world.offlineSeed() });
   for (const c of conns) if (c.pid) send(c, s);
-}, 30000);
+}, 10000);
 
 // ------------------------------------------------------------- http
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -149,7 +156,7 @@ wss.on('connection', (ws) => {
       case 'act': if (c.pid) world.act(c.pid, m.kind, m.target); break;
       case 'code': if (c.pid) world.redeem(c.pid, m.code); break;
       case 'turnin': if (c.pid) world.turnIn(c.pid); break;
-      case 'sync': if (c.pid) world.syncOffline(c.pid, m.sid, m.items); break;
+      case 'sync': if (c.pid) world.syncClaims(c.pid, m.claims); break;
       case 'gm-auth':
         if (m.pw === cfg.gmPassword) {
           c.gm = true;
