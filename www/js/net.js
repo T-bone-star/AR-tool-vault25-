@@ -10,6 +10,11 @@
  * Berichten van de server worden doorgegeven als DOM-events:
  *   net-hello (layout) · net-snap · net-me · net-msg · net-event · net-shot
  *   net-turnin · net-status ({state: 'connecting'|'online'|'offline'})
+ *   net-pack / net-seed (alles om zonder bereik door te spelen, zie offline.js)
+ *   net-synced (buit van een tocht zonder bereik is bijgeschreven)
+ *
+ * Zonder bereik zet offline.js net.local: dan gaan send() en de berichten
+ * naar een wereld die op de telefoon zelf draait.
  */
 (function () {
   window.V25 = window.V25 || {};
@@ -47,6 +52,27 @@
     layout: null,
     state: 'offline',
     retry: 0,
+    local: null,      // functie(msg) als we zonder bereik lokaal spelen
+
+    // Eén bericht verwerken (van de server, of van de lokale wereld)
+    handle(m) {
+      switch (m.t) {
+        case 'hello':
+          this.layout = m.layout;
+          if (m.offline) fire('net-pack', { ...m.offline, layout: m.layout });
+          this.setState('online');
+          fire('net-hello', m.layout);
+          break;
+        case 'snap': fire('net-snap', m); break;
+        case 'me': this.me = m; fire('net-me', m); break;
+        case 'msg': fire('net-msg', m); break;
+        case 'event': fire('net-event', m); break;
+        case 'shot': fire('net-shot', m); break;
+        case 'turnin': fire('net-turnin', m); break;
+        case 'seed': fire('net-seed', m.seed); break;
+        case 'synced': fire('net-synced', m); break;
+      }
+    },
 
     connect() {
       const server = defaultServer();
@@ -56,7 +82,11 @@
       let ws;
       try { ws = new WebSocket(`ws://${server}/ws`); } catch (e) { this.setState('offline'); this.later(); return; }
       this.ws = ws;
+      // Buiten bereik blijft een verbinding soms minutenlang "bezig": na 6 s
+      // afbreken en opnieuw proberen.
+      const giveUp = setTimeout(() => { if (ws.readyState === 0) { try { ws.close(); } catch (e) { /* al dicht */ } } }, 6000);
       ws.onopen = () => {
+        clearTimeout(giveUp);
         this.retry = 0;
         ws.send(JSON.stringify({ t: 'join', id: this.id, name, codes }));
         store.set('v25-codes', '');   // codes zijn ingewisseld; de server onthoudt de rol
@@ -64,17 +94,11 @@
       ws.onmessage = (ev) => {
         let m;
         try { m = JSON.parse(ev.data); } catch (e) { return; }
-        switch (m.t) {
-          case 'hello': this.layout = m.layout; this.setState('online'); fire('net-hello', m.layout); break;
-          case 'snap': fire('net-snap', m); break;
-          case 'me': this.me = m; fire('net-me', m); break;
-          case 'msg': fire('net-msg', m); break;
-          case 'event': fire('net-event', m); break;
-          case 'shot': fire('net-shot', m); break;
-          case 'turnin': fire('net-turnin', m); break;
-        }
+        this.handle(m);
       };
       ws.onclose = (ev) => {
+        clearTimeout(giveUp);
+        if (this.ws !== ws) return;
         this.ws = null;
         this.setState('offline');
         if (ev.code === 4000) { fire('net-msg', { text: 'Je bent op een ander apparaat ingelogd.', tone: 'bad' }); return; }
@@ -92,6 +116,7 @@
     setState(s) { this.state = s; fire('net-status', { state: s }); },
 
     send(msg) {
+      if (this.local) return this.local(msg);
       if (this.ws && this.ws.readyState === 1) { this.ws.send(JSON.stringify(msg)); return true; }
       return false;
     },

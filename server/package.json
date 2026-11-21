@@ -6,7 +6,8 @@
   "main": "server.js",
   "scripts": {
     "start": "node server.js",
-    "test": "node test/sim.test.js && node test/net.test.js && node test/client.test.js && node test/gm.test.js"
+    "bundle": "node tools/bundle-sim.js",
+    "test": "node tools/bundle-sim.js --check && node test/sim.test.js && node test/net.test.js && node test/client.test.js && node test/gm.test.js"
   },
   "dependencies": {
     "ws": "^8.18.0"

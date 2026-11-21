@@ -28,4 +28,7 @@ window.VAULT25_CONFIG = {
   },
 
   poseIntervalMs: 150,      // hoe vaak de telefoon zijn blik doorgeeft
+
+  // Zoveel ms zonder server -> de telefoon speelt zelf verder (offline.js)
+  offlineAfterMs: 8000,
 };

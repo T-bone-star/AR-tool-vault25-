@@ -226,6 +226,7 @@ body.cam-mode { background: #000; }
 .conn.online { background: var(--pip); box-shadow: 0 0 6px var(--pip); }
 .conn.connecting { background: #ffcf3c; animation: blink 1s infinite; }
 .conn.offline { background: #ff6b4a; }
+.conn.local { background: #ffcf3c; box-shadow: 0 0 6px #ffcf3c; }
 @keyframes blink { 50% { opacity: .3; } }
 #hud { padding-top: calc(12px + env(safe-area-inset-top)); }
 
@@ -242,6 +243,8 @@ body.cam-mode { background: #000; }
 #btn-recenter { top: calc(60px + env(safe-area-inset-top)); left: auto; right: 16px; margin-top: 28px; }
 
 #offline { position: fixed; bottom: calc(132px + env(safe-area-inset-bottom)); left: 50%; transform: translateX(-50%); z-index: 13; background: #3a1208; border: 1px solid #ff6b4a; color: #ffb4a0; padding: 8px 12px; border-radius: 4px; font-size: 0.8rem; text-align: center; }
+
+#offline.local { background: #2e2608; border-color: #ffcf3c; color: #ffe08a; font-size: 0.72rem; padding: 5px 10px; }
 
 #toast.tone-good { border-color: var(--pip); }
 #toast.tone-bad { border-color: #ff6b4a; color: #ffb4a0; }

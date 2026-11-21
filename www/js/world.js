@@ -35,6 +35,13 @@
       this.followCount = 0;
       this.stats = { outside: -1, returned: -1 };
       document.addEventListener('net-snap', (e) => this.applySnap(e.detail));
+      // Wissel tussen server en lokale wereld (geen bereik): alles opnieuw tekenen
+      document.addEventListener('net-reset', () => {
+        for (const m of [this.animals, this.critters, this.avatars]) {
+          for (const el of m.values()) if (el.parentNode) el.parentNode.removeChild(el);
+          m.clear();
+        }
+      });
     },
 
     // ---------------------------------------------- camera-wiskunde

@@ -38,7 +38,7 @@ class World {
     for (const p of saved.players || []) {
       this.players.set(p.id, {
         id: p.id, name: p.name, roles: new Set(p.roles || []), inv: p.inv || {},
-        online: false, pose: null, lastShot: -99,
+        online: false, pose: null, lastShot: -99, syncs: p.syncs || {},
       });
     }
     this.turnins = saved.turnins || [];
@@ -939,10 +939,55 @@ class World {
     };
   }
 
+  // ------------------------------------------------------- offline spelen
+  // Alles wat een telefoon nodig heeft om ZONDER verbinding de wereld zelf te
+  // draaien. Zonder rolcodes, GM-wachtwoord of radiotoken.
+  offlinePack() {
+    const cfg = JSON.parse(JSON.stringify(this.cfg));
+    delete cfg.gmPassword;
+    for (const r of Object.values(cfg.roles || {})) delete r.code;
+    cfg.radio = { enabled: false };
+    return { cfg, seed: this.offlineSeed() };
+  }
+  offlineSeed() {
+    const j = this.toJSON();
+    return { pens: j.pens, wildMult: j.wildMult, sectors: j.sectors };
+  }
+
+  // Buit van een tocht zonder bereik bijschrijven. sid = id van die tocht; de
+  // telefoon stuurt steeds het TOTAAL van die tocht, dus opnieuw sturen (na
+  // een haperende verbinding) schrijft nooit dubbel bij.
+  syncOffline(id, sid, items) {
+    const p = this.players.get(id);
+    const O = this.cfg.offline || {};
+    sid = String(sid || '').slice(0, 40);
+    if (!p || !sid || O.enabled === false || !items || typeof items !== 'object') return null;
+    p.syncs = p.syncs || {};
+    const prev = p.syncs[sid] || {}, now = { ...prev }, add = {};
+    const max = O.maxPerItem || 40;
+    for (const [k, v] of Object.entries(items)) {
+      if (!this.cfg.items[k]) continue;
+      const n = Math.min(Math.floor(Number(v)), max);
+      if (!(n > 0)) continue;
+      if (n > (prev[k] || 0)) { add[k] = n - (prev[k] || 0); now[k] = n; }
+    }
+    p.syncs[sid] = now;
+    const keys = Object.keys(p.syncs);
+    if (keys.length > 10) for (const k of keys.slice(0, keys.length - 10)) delete p.syncs[k];
+    this.emit(p.id, { t: 'synced', sid });     // eerst bevestigen, dán de nieuwe tas
+    if (Object.keys(add).length) {
+      this.give(p, add);
+      this.msg(p, `Bijgeschreven van je tocht zonder bereik: ${this.itemsText(add)}.`, 'good');
+      this.event('offline', `${p.name} komt terug uit het veld met ${this.itemsText(add)}.`, { by: p.id });
+    }
+    this.saveNeeded = true;
+    return add;
+  }
+
   toJSON() {
     const counts = this.herdCounts();
     return {
-      players: [...this.players.values()].map(p => ({ id: p.id, name: p.name, roles: [...p.roles], inv: p.inv })),
+      players: [...this.players.values()].map(p => ({ id: p.id, name: p.name, roles: [...p.roles], inv: p.inv, syncs: p.syncs || {} })),
       turnins: this.turnins,
       pens: this.pens.map(p => ({ id: p.id, active: p.active, cond: p.cond, animals: counts[p.id] })),
       wildMult: this.wildMult,

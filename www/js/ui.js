@@ -69,10 +69,17 @@
   // ---------------------------------------------------------- verbinding
   on('net-status', (e) => {
     const dot = $('conn'); if (!dot) return;
-    dot.className = 'conn ' + e.detail.state;
-    dot.title = { online: 'Verbonden', connecting: 'Verbinden…', offline: 'Geen verbinding' }[e.detail.state];
+    const st = e.detail.state !== 'online' && net.local ? 'local' : e.detail.state;
+    dot.className = 'conn ' + st;
+    dot.title = { online: 'Verbonden', connecting: 'Verbinden…', offline: 'Geen verbinding', local: 'Geen bereik — je speelt lokaal' }[st];
     const ov = $('offline');
-    if (ov) ov.hidden = e.detail.state === 'online' || !net.layout;
+    if (ov) {
+      ov.hidden = st === 'online' || !net.layout;
+      ov.classList.toggle('local', st === 'local');
+      ov.textContent = st === 'local'
+        ? 'GEEN BEREIK · je speelt door, buit wordt later bijgeschreven'
+        : 'Verbinding met de server kwijt — opnieuw verbinden…';
+    }
   });
 
   function hideLoader() { const l = $('loader'); if (l) l.classList.add('hidden'); }

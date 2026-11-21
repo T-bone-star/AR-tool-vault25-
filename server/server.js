@@ -73,6 +73,12 @@ setInterval(() => {
   }
   if (world.saveNeeded) { world.saveNeeded = false; save(); }
 }, 1000);
+// Telefoons de actuele stand (hokken, dieren, wild) geven voor als ze straks
+// buiten bereik lopen
+setInterval(() => {
+  const s = JSON.stringify({ t: 'seed', seed: world.offlineSeed() });
+  for (const c of conns) if (c.pid) send(c, s);
+}, 30000);
 
 // ------------------------------------------------------------- http
 const TYPES = { '.html': 'text/html; charset=utf-8', '.js': 'text/javascript; charset=utf-8',
@@ -133,7 +139,7 @@ wss.on('connection', (ws) => {
         // Zelfde speler op een tweede tab/telefoon: de oude verbinding sluiten
         for (const o of conns) if (o !== c && o.pid === p.id) { o.pid = null; o.ws.close(4000, 'elders ingelogd'); }
         c.pid = p.id;
-        send(c, { t: 'hello', layout: world.layout() });
+        send(c, { t: 'hello', layout: world.layout(), offline: world.offlinePack() });
         world.sendMe(p);
         send(c, world.snapshot());
         console.log(`+ ${p.name} (${[...p.roles].join(', ') || 'geen rol'})`);
@@ -143,6 +149,7 @@ wss.on('connection', (ws) => {
       case 'act': if (c.pid) world.act(c.pid, m.kind, m.target); break;
       case 'code': if (c.pid) world.redeem(c.pid, m.code); break;
       case 'turnin': if (c.pid) world.turnIn(c.pid); break;
+      case 'sync': if (c.pid) world.syncOffline(c.pid, m.sid, m.items); break;
       case 'gm-auth':
         if (m.pw === cfg.gmPassword) {
           c.gm = true;

@@ -65,7 +65,7 @@ function makeBrowser(playerId, name, codes) {
   }
   const camEl = makeEl('a-camera');
   const ctx = {
-    console, Math, JSON, Object, Array, String, Number, Promise, Date, Map, Set, setTimeout, clearTimeout,
+    console, Math, JSON, Object, Array, String, Number, Promise, Date, Map, Set, setTimeout, clearTimeout, setInterval, clearInterval,
     THREE, WebSocket,
     CustomEvent: function (t, o) { this.type = t; this.detail = o && o.detail; },
     performance: { now: () => Date.now() },
@@ -87,7 +87,8 @@ function makeBrowser(playerId, name, codes) {
   };
   ctx.window = ctx;
   vm.createContext(ctx);
-  for (const f of ['utils', 'config', 'net', 'models', 'world', 'interact']) {
+  for (const f of ['utils', 'config', 'net', 'sim-bundle', 'offline', 'models', 'world', 'interact']) {
+    if (f === 'net') ctx.VAULT25_CONFIG.offlineAfterMs = 1500;   // sneller lokaal in de test
     vm.runInContext(fs.readFileSync(path.join(WWW, 'js', f + '.js'), 'utf8'), ctx, { filename: f });
   }
   // THREE.Sprite e.d. zijn echt; CanvasTexture met nep-canvas is prima voor de test.
@@ -121,12 +122,18 @@ function makeBrowser(playerId, name, codes) {
   return b;
 }
 
-(async () => {
-  const srv = spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
+let srv = null, log = '';
+async function startServer() {
+  log = '';
+  srv = spawn(process.execPath, [path.join(__dirname, '..', 'server.js')], {
     env: { ...process.env, PORT: String(PORT), V25_DATA: DATA, V25_CONFIG: CFGFILE }, stdio: ['ignore', 'pipe', 'pipe'],
   });
-  let log = ''; srv.stdout.on('data', d => log += d); srv.stderr.on('data', d => log += d);
+  srv.stdout.on('data', d => log += d); srv.stderr.on('data', d => log += d);
   for (let i = 0; i < 50 && !log.includes('draait'); i++) await sleep(100);
+}
+
+(async () => {
+  await startServer();
 
   try {
     const piet = makeBrowser('c-piet', 'Piet', base.roles.boer.code);
@@ -231,6 +238,39 @@ function makeBrowser(playerId, name, codes) {
     check('verbinding kwijt wordt gemeld', piet.all('net-status').some(e => e.detail.state === 'offline'));
     for (let i = 0; i < 40 && piet.net.state !== 'online'; i++) await piet.run(100);
     check('automatisch opnieuw verbonden, rol behouden', piet.net.state === 'online' && piet.net.me.roles.includes('boer'));
+
+    // ------------------------------------------------ zonder bereik doorspelen
+    check('spelregels voor offline bewaard, zonder codes', (() => {
+      const pk = JSON.parse(piet.ctx.localStorage.getItem('v25-pack') || 'null');
+      return pk && pk.cfg && pk.cfg.pens && !pk.cfg.gmPassword && !Object.values(pk.cfg.roles).some(r => r.code);
+    })());
+    const before = { ...piet.net.me.inv };
+    srv.kill('SIGTERM'); await sleep(300);
+    for (let i = 0; i < 60 && !piet.ctx.V25.offline.active; i++) await piet.run(100);
+    check('server weg -> telefoon speelt lokaal verder', piet.ctx.V25.offline.active);
+    await piet.run(800);
+    check('lokaal: hokken en vee getekend', piet.sys.animals.size > 0, `${piet.sys.animals.size} dieren`);
+    for (let i = 0; i < 40 && piet.sys.fields[0].stage !== 2; i++) await piet.run(100);
+    const lf = piet.sys.fields[0];
+    piet.setCam(0, 1.6, 14); piet.lookAt(lf.cfg.x, 0, lf.cfg.z); await piet.run(200);
+    check('lokaal: boer kan oogsten', piet.inter.aim && piet.inter.aim.kind === 'oogst' && !piet.inter.aim.locked);
+    piet.inter.doAction(); await piet.run(300);
+    const gotLocal = (piet.net.me.inv[lf.cfg.crop] || 0) - (before[lf.cfg.crop] || 0);
+    check('lokaal: oogst in de tas', gotLocal === lf.cfg.yield, JSON.stringify(piet.net.me.inv));
+    const pend = piet.ctx.V25.offline.pending();
+    check('buit bewaard als "nog bij te schrijven"', pend && pend.items[lf.cfg.crop] === lf.cfg.yield, JSON.stringify(pend));
+    piet.net.send({ t: 'turnin' }); await piet.run(100);
+    check('inleveren zonder bereik: nette melding', /alleen met bereik/.test(piet.last('net-msg').detail.text));
+
+    await startServer();
+    for (let i = 0; i < 250 && !(piet.net.state === 'online' && !piet.ctx.V25.offline.active && !piet.ctx.V25.offline.pending()); i++) await piet.run(100);
+    check('terug in bereik -> weer op de server', piet.net.state === 'online' && !piet.ctx.V25.offline.active);
+    check('buit van de tocht bijgeschreven op de server', (piet.net.me.inv[lf.cfg.crop] || 0) === (before[lf.cfg.crop] || 0) + lf.cfg.yield, JSON.stringify(piet.net.me.inv));
+    check('"nog bij te schrijven" leeg', !piet.ctx.V25.offline.pending());
+    check('melding "bijgeschreven"', piet.all('net-msg').some(e => /Bijgeschreven/.test(e.detail.text)));
+    // Dubbel sturen schrijft niet dubbel bij
+    piet.net.send({ t: 'sync', sid: pend.sid, items: pend.items }); await piet.run(400);
+    check('zelfde tocht nogmaals sturen: niet dubbel', (piet.net.me.inv[lf.cfg.crop] || 0) === (before[lf.cfg.crop] || 0) + lf.cfg.yield);
   } catch (e) {
     console.error(e); fail++;
   } finally {

@@ -150,6 +150,25 @@ if b:
 ```
 Testen: `PADDOCK_SERVER=192.168.68.116:8090 python3 paddock_radio.py`
 
+## Geen bereik bij de paddock
+
+Valt de wifi weg, dan speelt de telefoon na 8 seconden **zelf verder**
+(gele stip + balk "GEEN BEREIK"). Hij gebruikt dezelfde spelregels als de
+server en de laatst bekende stand van de hokken en het wild.
+
+- Jagen, oogsten, verzorgen en vee terugbrengen werken gewoon.
+- Wat je verdient blijft op de telefoon bewaard (ook als de app sluit) en
+  wordt **bijgeschreven zodra je weer bij de wifi bent** ("Bijgeschreven van je
+  tocht zonder bereik …"). Het GM-scherm toont "X komt terug uit het veld met …".
+- Niet zonder bereik: rolcodes invoeren en inleveren. Andere spelers zie je
+  dan niet, en dieren/akkers lopen per telefoon los van de server.
+- Voorwaarde: de telefoon moet **één keer** met de server verbonden zijn
+  geweest (dan haalt hij de spelregels op, zonder codes).
+- Maximum per soort per tocht: `offline.maxPerItem` in `server/config.js`.
+
+Na een wijziging in `server/sim.js`: `cd server && npm run bundle` (de
+telefoon gebruikt een kopie in `www/js/sim-bundle.js`; `npm test` controleert dat).
+
 ## Modi
 
 | Modus | Nodig | Gebruik |

@@ -414,5 +414,24 @@ for (let i = 0; i < 12000; i++) {
 check('10 min duurtest: wild nooit in het hek', wildInside === 0);
 check('10 min duurtest: wild blijft beperkt', w.critters.filter(c => c.state !== 'DEAD').length <= cfg.wildlife.maxAlive);
 
+// ---------- zonder bereik: pakket en bijschrijven
+{
+  const pk = w.offlinePack();
+  check('offline-pakket zonder GM-wachtwoord en rolcodes', !pk.cfg.gmPassword && !Object.values(pk.cfg.roles).some(r => r.code) && pk.cfg.radio.enabled === false);
+  check('offline-pakket bevat hokstand', pk.seed.pens.length === cfg.pens.length);
+  const out = [];
+  const w2 = new World(cfg, {}, (to, m) => out.push([to, m]));
+  w2.join('p-o', 'Olga');
+  const a1 = w2.syncOffline('p-o', 's1', { ei: 3, vlees: 999, nep: 5, veren: -2 });
+  const max = (cfg.offline && cfg.offline.maxPerItem) || 40;
+  check('bijschrijven: maximum per soort, onbekend/negatief genegeerd', a1.ei === 3 && a1.vlees === max && !('nep' in a1) && !('veren' in a1), JSON.stringify(a1));
+  const a2 = w2.syncOffline('p-o', 's1', { ei: 5, vlees: max });
+  check('zelfde tocht opnieuw: alleen het verschil', a2.ei === 2 && !a2.vlees && w2.players.get('p-o').inv.ei === 5, JSON.stringify(a2));
+  check('bevestiging naar de telefoon', out.some(([to, m]) => to === 'p-o' && m.t === 'synced' && m.sid === 's1'));
+  const w3 = new World(cfg, JSON.parse(JSON.stringify(w2.toJSON())));
+  w3.join('p-o', 'Olga');
+  check('tochten blijven bewaard na herstart (geen dubbel)', Object.keys(w3.syncOffline('p-o', 's1', { ei: 5 })).length === 0);
+}
+
 console.log(`\n${pass} geslaagd, ${fail} gefaald`);
 process.exit(fail ? 1 : 0);

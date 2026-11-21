@@ -179,6 +179,12 @@ module.exports = {
     // Bij "goed" en "beschadigd" kan het alleen door de poortopening.
   },
 
+  // --- Zonder bereik ---------------------------------------------------------
+  // Valt de wifi weg (bv. bij de paddock), dan speelt de telefoon zelf verder.
+  // Wat iemand dan verdient wordt bijgeschreven zodra hij weer verbinding
+  // heeft, met een maximum per soort per tocht (tegen misbruik).
+  offline: { enabled: true, maxPerItem: 40 },
+
   // --- Radio (FreeRadical / bunkerradio) ----------------------------------
   // De server zet berichten klaar; de bunkerradio-Pi haalt ze op via
   // http://<deze pc>:8090/radio/next (zie radio/paddock_radio.py).
